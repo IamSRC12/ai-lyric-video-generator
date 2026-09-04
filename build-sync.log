@@ -1,0 +1,45 @@
+
+> build
+> next build
+
+▲ Next.js 16.2.6 (Turbopack)
+- Environments: .env.local, .env
+
+  Creating an optimized production build ...
+(node:12812) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Turbopack build encountered 1 warnings:
+./next.config.ts
+Encountered unexpected file in NFT list
+A file was traced that indicates that the whole project was traced unintentionally. Somewhere in the import trace below, there are:
+- filesystem operations (like path.join, path.resolve or fs.readFile), or
+- very dynamic requires (like require('./' + foo)).
+To resolve this, you can
+- remove them if possible, or
+- only use them in development, or
+- make sure they are statically scoped to some subfolder: path.join(process.cwd(), 'data', bar), or
+- add ignore comments: path.join(/*turbopackIgnore: true*/ process.cwd(), bar)
+
+Import trace:
+  App Route:
+    ./next.config.ts
+    ./src/app/api/export/route.ts
+
+
+✓ Compiled successfully in 59s
+  Running TypeScript ...
+Failed to type check.
+
+./src/lib/deep-align.ts:103:27
+Type error: A type predicate's type must be assignable to its parameter's type.
+  Type '{ startSec: number; endSec: number; label?: string | undefined; }' is not assignable to type '{ startSec: number; endSec: number; label: string | undefined; }'.
+    Property 'label' is optional in type '{ startSec: number; endSec: number; label?: string | undefined; }' but required in type '{ startSec: number; endSec: number; label: string | undefined; }'.
+
+  [90m101 |[0m           [36mreturn[0m { startSec: [33mMath[0m.max([35m0[0m, s), endSec: [33mMath[0m.min(e, durationSec), label: [36mtyp...[0m
+  [90m102 |[0m         })
+[31m[1m>[0m [90m103 |[0m         .filter((b): b is { startSec: number; endSec: number; label?: string } => b !== [36mn...[0m
+  [90m    |[0m                           [31m[1m^[0m
+  [90m104 |[0m     : [];
+  [90m105 |[0m
+  [90m106 |[0m   [36mreturn[0m { alignedLines: lines, instrumentalBreaks };
+Next.js build worker exited with code: 1 and signal: null

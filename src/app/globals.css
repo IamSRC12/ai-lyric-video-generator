@@ -1,0 +1,412 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #090909;
+  --bg-elev: #111111;
+  --bg-panel: #151515;
+  --bg-card: #141414;
+  --bg-hover: #202020;
+  --line: #292929;
+  --line-strong: #3a3a3a;
+  --line-accent: rgba(239, 68, 68, 0.32);
+  --ink: #f4f4f5;
+  --muted: #a1a1aa;
+  --faint: #71717a;
+  --accent: #ef4444;
+  --accent-light: #f87171;
+  --accent-ink: #ffffff;
+  --purple: #a1a1aa;
+  --cyan: #a1a1aa;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --focus: #ef4444;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-elev: var(--bg-elev);
+  --color-panel: var(--bg-panel);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-outfit), "Segoe UI", sans-serif;
+  --font-display: var(--font-fraunces), Georgia, serif;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+html, body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body { margin: 0; min-width: 320px; }
+
+button, input, textarea, select { font: inherit; color: inherit; }
+
+/* Smooth interactive transitions everywhere */
+button, a, input, textarea, select {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 200ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+button:active { transform: scale(0.97); }
+
+::selection { background: color-mix(in oklab, var(--accent) 40%, transparent); }
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Elegant scrollbars */
+.lf-scroll { scrollbar-width: thin; scrollbar-color: #2a3142 transparent; }
+.lf-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.lf-scroll::-webkit-scrollbar-track { background: transparent; }
+.lf-scroll::-webkit-scrollbar-thumb {
+  background: #2a3142;
+  border-radius: 999px;
+  border: 2px solid var(--bg-panel);
+  transition: background 160ms ease;
+}
+.lf-scroll::-webkit-scrollbar-thumb:hover { background: #3a4459; }
+
+.lf-grid {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.lf-safe { box-shadow: inset 0 0 0 1px rgba(245, 193, 90, 0.18); }
+
+/* Entrance animations */
+@keyframes lf-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.lf-enter { animation: lf-in 260ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes lf-in-scale {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.lf-enter-scale { animation: lf-in-scale 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Staggered section reveals for the wizard */
+@keyframes lf-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+.lf-rise { animation: lf-rise 480ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lf-rise-1 { animation-delay: 60ms; }
+.lf-rise-2 { animation-delay: 140ms; }
+.lf-rise-3 { animation-delay: 220ms; }
+.lf-rise-4 { animation-delay: 300ms; }
+
+/* Skeleton shimmer */
+.lf-skel {
+  background: linear-gradient(90deg, #161b26 0%, #222836 50%, #161b26 100%);
+  background-size: 200% 100%;
+  animation: lf-shimmer 1.2s linear infinite;
+}
+@keyframes lf-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+/* Soft breathing glow for primary CTAs */
+@keyframes lf-glow {
+  0%, 100% { box-shadow: 0 10px 30px rgba(245, 193, 90, 0.28); }
+  50% { box-shadow: 0 10px 42px rgba(245, 193, 90, 0.45); }
+}
+.lf-glow { animation: lf-glow 2.6s ease-in-out infinite; }
+
+/* Pulse animation */
+@keyframes lf-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.95); }
+}
+.lf-pulse-dot { animation: lf-pulse 2s ease-in-out infinite; }
+
+/* Caption list items cascade in (staggered via inline animation-delay) */
+@keyframes lf-cap-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.lf-cap-in {
+  animation: lf-cap-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Active lyric line under the playhead — soft breathing glow */
+.lf-active-glow {
+  animation: lf-active-line 2.2s ease-in-out infinite;
+}
+
+/* ===== Component Utilities ===== */
+.lf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+.lf-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+.lf-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.lf-btn:disabled {
+  opacity: 0.4;
+}
+
+.lf-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  transition: all 150ms ease;
+  color: var(--muted);
+}
+.lf-btn-icon:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--ink);
+  border-color: var(--line);
+}
+.lf-btn-icon:active:not(:disabled) {
+  transform: scale(0.95);
+}
+.lf-btn-icon.active {
+  color: var(--accent);
+  background: rgba(245, 193, 90, 0.12);
+  border-color: rgba(245, 193, 90, 0.3);
+}
+.lf-btn-icon:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.lf-btn-accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 40px;
+  padding: 0.5rem 1.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-radius: 0.625rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: none;
+  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  border: none;
+}
+.lf-btn-accent:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+}
+.lf-btn-accent:active:not(:disabled) {
+  transform: scale(0.97) translateY(0);
+}
+.lf-btn-accent:disabled {
+  opacity: 0.4;
+  filter: grayscale(0.5);
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.lf-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 36px;
+  padding: 0.375rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  transition: all 150ms ease;
+}
+.lf-btn-ghost:hover:not(:disabled) {
+  border-color: rgba(245, 193, 90, 0.4);
+  background: rgba(245, 193, 90, 0.05);
+  color: var(--ink);
+}
+.lf-btn-ghost:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.lf-btn-ghost:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.lf-card {
+  border: 1px solid var(--line);
+  border-radius: 1.125rem;
+  background: var(--bg-card);
+  padding: 1.375rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.lf-card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.lf-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(8, 10, 15, 0.8);
+  color: var(--ink);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.lf-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 193, 90, 0.15);
+}
+.lf-input::placeholder {
+  color: var(--faint);
+}
+
+.lf-select {
+  min-height: 36px;
+  padding: 0.4375rem 0.75rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(8, 10, 15, 0.8);
+  color: var(--ink);
+  transition: border-color 150ms ease;
+}
+.lf-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 193, 90, 0.15);
+}
+
+input[type="range"] {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  accent-color: var(--accent);
+}
+input[type="range"]::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(245, 193, 90, 0.5);
+}
+
+.lf-divider {
+  height: 1px;
+  width: 100%;
+  background: var(--line);
+  border: none;
+}
+
+.lf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.625rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+
+.lf-label {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+
+/* Responsive application shells */
+.lf-studio-shell { min-width: 0; }
+.lf-studio-header { overflow-x: auto; scrollbar-width: none; }
+.lf-studio-header::-webkit-scrollbar { display: none; }
+.lf-studio-main {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr) minmax(260px, 320px);
+}
+.lf-studio-center { min-width: 0; }
+.lf-btn-icon svg,
+.lf-btn svg,
+.lf-btn-ghost svg,
+.lf-btn-accent svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  stroke-width: 2;
+}
+
+@media (max-width: 1100px) {
+  .lf-studio-main { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); }
+  .lf-studio-inspector {
+    position: fixed;
+    inset: 57px 0 0 auto;
+    width: min(360px, 92vw) !important;
+    z-index: 60;
+    box-shadow: -16px 0 40px rgba(0, 0, 0, 0.55);
+  }
+}
+
+@media (max-width: 760px) {
+  .lf-studio-main { display: flex; }
+  .lf-studio-captions {
+    position: fixed;
+    inset: 57px auto 0 0;
+    width: min(340px, 92vw) !important;
+    z-index: 60;
+    box-shadow: 16px 0 40px rgba(0, 0, 0, 0.55);
+  }
+  .lf-card { padding: 1rem; border-radius: 0.875rem; }
+}
+
+/* Reduced motion respect */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

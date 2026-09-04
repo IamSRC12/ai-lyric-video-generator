@@ -1,0 +1,131 @@
+      {open && <div className="px-3.5 pb-4 pt-1 space-y-3.5 border-t border-white/5">{children}</div>}
+    </div>
+  );
+}
+
+export function Inspector() {
+  const studio = useStudio();
+  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]["id"]>("templates");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const fontInputRef = useRef<HTMLInputElement>(null);
+  const lottieInputRef = useRef<HTMLInputElement>(null);
+  const bgImageInputRef = useRef<HTMLInputElement>(null);
+
+  const selected = studio.project.captions.find((c) => c.id === studio.selectedIds[0]);
+  const style = selected?.styleOverride
+    ? { ...studio.project.defaultStyle, ...selected.styleOverride }
+    : studio.project.defaultStyle;
+  const overridden = Boolean(selected?.styleOverride);
+
+  const recentColors = useMemo(
+    () => [
+      style.fill ?? "#F4F1EA",
+      style.highlightFill ?? "#F5C15A",
+      style.pastFill ?? "#C8C2B4",
+      style.futureFill ?? "#F4F1EA",
+      "#F5C15A",
+      "#FFE600",
+      "#00FFA3",
+      "#67F0FF",
+      "#FF1493",
+      "#FFFFFF",
+      "#000000",
+      "#10B981",
+    ],
+    [style.fill, style.highlightFill, style.pastFill, style.futureFill],
+  );
+
+  const patch = (p: Partial<typeof style>) => studio.updateStyle(p, selected ? "selected" : "default");
+
+  const overlay: OverlaySpec = studio.project.media?.background?.overlay ?? {
+    type: "none",
+    opacity: 0.85,
+    speed: 1,
+    scale: 1,
+    blendMode: "screen",
+  };
+
+  const patchOverlay = (p: Partial<OverlaySpec>) => {
+    studio.commit((d) => {
+      if (!d.media.background.overlay) {
+        d.media.background.overlay = { type: "none", opacity: 0.85, speed: 1, scale: 1, blendMode: "screen" };
+      }
+      d.media.background.overlay = { ...d.media.background.overlay, ...p };
+    });
+  };
+
+  const handleFontUpload = async (file: File) => {
+    try {
+      setUploadError(null);
+      const fontName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const buffer = await file.arrayBuffer();
+      const fontFace = new FontFace(fontName, buffer);
+      await fontFace.load();
+      document.fonts.add(fontFace);
+      patch({ fontFamily: fontName });
+      studio.notify(`Custom font "${fontName}" loaded!`);
+    } catch {
+      setUploadError("Could not load font file. Use .ttf, .otf, or .woff2.");
+    }
+  };
+
+  const handleBgImageUpload = async (file: File) => {
+    try {
+      const assetId = `bg-${studio.project.id}-${Date.now()}`;
+      await putBlob(assetId, file);
+      studio.commit((d) => {
+        d.media.background.type = "image";
+        d.media.background.imageAssetId = assetId;
+      });
+      studio.notify("Custom background backdrop applied!");
+    } catch {
+      setUploadError("Failed to store background image.");
+    }
+  };
+
+  const activeTemplateId = studio.project.templateId ?? studio.project.presetId ?? "seven-clouds";
+
+  return (
+    <div className="flex h-full flex-col bg-[#090d16] text-[var(--ink)] select-none">
+      {/* ===== STICKY TOP HEADER ===== */}
+      <div className="shrink-0 border-b border-[var(--line)] bg-[#0c101a] p-3 space-y-2.5">
+        {/* Scope Indicator Pill with Re-align Action */}
+        <div className="flex items-center justify-between rounded-lg bg-[#06080e] px-3 py-2 border border-white/5 text-[11px]">
+          <span className="text-[var(--muted)] flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${selected ? "bg-[var(--accent)] animate-pulse" : "bg-emerald-400"}`} />
+            {selected ? (
+              <strong className="text-[var(--accent)]">Editing Line #{selected.index + 1}</strong>
+            ) : (
+              <span>Global Design Defaults</span>
+            )}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {selected && (
+              <button
+                type="button"
+                onClick={() => studio.realignCaption(selected.id)}
+                className="flex items-center gap-1 text-[10px] bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold px-2 py-0.5 rounded-md border border-amber-500/30 transition-all shadow-sm"
+                title="Re-calculate word timings for this line using acoustic onset snapping"
+              >
+                <RefreshCw size={10} /> Re-align Line
+              </button>
+            )}
+            {overridden && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (selected) {
+                    studio.commit((d) => {
+                      const c = d.captions.find((x) => x.id === selected.id);
+                      if (c) delete c.styleOverride;
+                    });
+                  }
+                }}
+                className="text-[10px] text-[var(--accent)] hover:underline font-bold"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>

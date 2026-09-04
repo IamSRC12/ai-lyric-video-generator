@@ -1,0 +1,6 @@
+src/app/api/session/route.ts(9,610): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'StudioErrorCode'.
+src/lib/session.ts(9,218): error TS2339: Property 'apiKey' does not exist on type 'StoredSession'.
+src/lib/session.ts(10,226): error TS2554: Expected 1 arguments, but got 2.
+src/lib/session.ts(11,171): error TS2554: Expected 1 arguments, but got 2.
+src/render-engine/draw-frame.ts(516,52): error TS2304: Cannot find name 'timedWord'.
+src/render-engine/draw-frame.ts(523,62): error TS2304: Cannot find name 'lineBlur'.

@@ -1,0 +1,9 @@
+src\app\api\analyze\route.ts
+src\app\api\session\route.ts
+src\components\wizard.tsx
+src\components\studio\inspector.tsx
+src\lib\session.ts
+src\render-engine\custom-animation.test.ts
+src\render-engine\custom-animation.ts
+src\render-engine\draw-frame.test.ts
+src\render-engine\draw-frame.ts

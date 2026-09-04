@@ -1,0 +1,735 @@
+### src/render-engine/draw-frame.ts
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:47:  caption: Caption,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:48:  timeSec: number,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:49:): { alpha: number; tx: number; ty: number; scale: number; blur: number; waveOffset: number } {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:50:  const inn = caption.animation?.in ?? {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:51:    preset: "fade",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:52:    durationSec: 0.25,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:53:    delaySec: 0,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:54:    easing: { type: "named", name: "ease-out-cubic" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:55:  };
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:56:  const out = caption.animation?.out ?? {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:57:    preset: "fade",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:58:    durationSec: 0.25,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:59:    delaySec: 0,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:60:    easing: { type: "named", name: "ease-out-cubic" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:61:  };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:62:  const tIn = inn.durationSec <= 0 ? 1 : applyEasing(inn.easing, (timeSec - caption.startSec - inn.delaySec) / inn.durationSec);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:311:  ctx.save();
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:312:  ctx.globalAlpha = alpha;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:313:  ctx.fillStyle = "#F7F4EE";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:314:  ctx.textAlign = "center";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:315:  ctx.textBaseline = "middle";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:316:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:317:  if (hasTitle) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:318:    ctx.font = fontString("Fraunces", 500, true, height * 0.07);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:319:    ctx.fillText(title, width / 2, hasArtist ? height * 0.44 : height * 0.49);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:320:  }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:428:    );
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:429:  }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:430:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:431:  ctx.textAlign = "left";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:432:  ctx.textBaseline = "middle";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:433:  ctx.lineJoin = "round";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:434:  ctx.miterLimit = 2;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:435:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:436:  let wordCursor = 0;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:437:  const wordLead = (project.settings?.wordLeadMs ?? 0) / 1000;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:456:      }))
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:457:    : rawSource;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:458:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:459:  const karaokeMode = style.karaoke ?? (caption.animation?.highlight?.style === "box" ? "word-color" : "wipe");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:460:  const karaokeEnabled = (project.settings?.karaoke ?? true) && karaokeMode !== "none";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:461:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:462:  const activeFill = style.activeFill ?? style.highlightFill ?? "#F5C15A";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:463:  const pastFill = style.pastFill ?? "#C8C2B4";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:464:  const futureFill = style.futureFill ?? style.fill ?? "#F4F1EA";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:465:  const inactiveOpacity = style.inactiveOpacity ?? 0.75;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:468:  lineMetrics.forEach((lm, li) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:469:    const y = -blockH / 2 + (li + 0.5) * fontPx * (style.lineHeight ?? 1.2);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:470:    let x = -lm.width / 2;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:471:    if (style.align === "left") x = -blockW / 2;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:472:    if (style.align === "right") x = blockW / 2 - lm.width;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:473:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:474:    for (const token of lm.line) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:475:      const word = sourceWords[Math.min(wordCursor, sourceWords.length - 1)];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:476:      wordCursor += 1;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:477:      const state = word ? wordState(word, timeSec) : "future";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:478:      const localT = word ? Math.max(0, Math.min(1, (timeSec - word.startSec) / Math.max(0.04, word.endSec - word.startSec))) : 0;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:563:  ctx.restore();
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:564:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:565:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:566:export function drawFrame(
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:567:  ctx: FrameContext,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:568:  project: Project,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:569:  timeSecRaw: number,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:570:  assets: ResolvedAssets,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:571:): void {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts:572:  const timeSec = timeSecRaw + (project.settings?.syncOffsetMs ?? 0) / 1000;
+### src/render-engine/custom-animation.ts
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:1:import type { z } from "zod";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:2:import { CustomAnimationSchema } from "@/schema";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:3:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:4:export type CustomAnimation = z.infer<typeof CustomAnimationSchema>;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:5:export interface AnimationTransform { opacity:number; translateX:number; translateY:number; scale:number; rotation:number; blur:number }
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:6:const DEFAULTS: AnimationTransform={opacity:1,translateX:0,translateY:0,scale:1,rotation:0,blur:0};
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:7:const clamp=(n:number,a=0,b=1)=>Math.min(b,Math.max(a,n));
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:8:const ease=(t:number,name:CustomAnimation["easing"])=>name==="ease-in"?t*t:name==="ease-out"?1-(1-t)*(1-t):name==="ease-in-out"?(t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2):t;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:9:export function normalizeCustomAnimation(value:unknown):CustomAnimation|null { const parsed=CustomAnimationSchema.safeParse(value); if(!parsed.success)return null; return {...parsed.data,keyframes:[...parsed.data.keyframes].sort((a,b)=>a.at-b.at)}; }
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:10:export function evaluateCustomAnimation(spec:CustomAnimation,timeSec:number,originSec=0):AnimationTransform {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:11: const frames=[...spec.keyframes].sort((a,b)=>a.at-b.at); const raw=(timeSec-originSec-spec.offsetSec)/spec.durationSec; const p=clamp(raw); let hi=frames.findIndex(f=>f.at>=p); if(hi<0)hi=frames.length-1; const lo=Math.max(0,hi-1); const a=frames[lo],b=frames[hi]; const span=Math.max(1e-9,b.at-a.at); const t=lo===hi?0:ease(clamp((p-a.at)/span),spec.easing);
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:12: const value=(k:keyof AnimationTransform)=>{const av=a[k]??DEFAULTS[k],bv=b[k]??av;return av+(bv-av)*t};
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:13: return {opacity:clamp(value("opacity")),translateX:value("translateX"),translateY:value("translateY"),scale:Math.max(0,value("scale")),rotation:value("rotation"),blur:Math.max(0,value("blur"))};
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:14:}
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts:15:export function applyAnimationTransform(ctx:CanvasRenderingContext2D,t:AnimationTransform){ctx.globalAlpha*=t.opacity;ctx.translate(t.translateX,t.translateY);ctx.rotate(t.rotation*Math.PI/180);ctx.scale(t.scale,t.scale);ctx.filter=t.blur>0?`blur(${t.blur}px)`:"none";}
+### src/schema/index.ts
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:6:export const RESOLUTIONS = ["1280x720", "1920x1080", "2560x1440", "3840x2160"] as const;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:7:export const FPS_OPTIONS = [24, 25, 30, 50, 60] as const;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:8:export const RIPPLE_MODES = ["independent", "ripple", "roll", "relink"] as const;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:9:export const QUALITY_PRESETS = ["high", "balanced", "small", "custom"] as const;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:10:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:11:export const HexColorSchema = z
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:12:  .string()
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:13:  .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:14:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:15:export const EasingNameSchema = z.enum([
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:32:  damping: z.number().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:33:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:34:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:35:export const AnimPresetSchema = z.enum([
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:36:  "none",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:37:  "fade",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:38:  "slide",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:39:  "scale",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:40:  "blur",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:41:  "typewriter",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:47:  "wave",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:48:]);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:49:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:50:export const CustomAnimationKeyframeSchema = z.object({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:51:  at: z.number().min(0).max(1),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:52:  opacity: z.number().min(0).max(1).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:53:  translateX: z.number().min(-4096).max(4096).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:54:  translateY: z.number().min(-4096).max(4096).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:55:  scale: z.number().min(0).max(20).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:56:  rotation: z.number().min(-3600).max(3600).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:57:  blur: z.number().min(0).max(256).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:58:});
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:59:export const CustomAnimationSchema = z.object({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:60:  version: z.literal(1),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:61:  target: z.enum(["line", "word"]).default("line"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:62:  durationSec: z.number().positive().max(60),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:63:  offsetSec: z.number().min(-60).max(60).default(0),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:64:  easing: EasingNameSchema.default("linear"),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:65:  keyframes: z.array(CustomAnimationKeyframeSchema).min(2).max(64),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:66:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:67:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:68:export const AnimSpecSchema = z.object({
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:69:  preset: AnimPresetSchema,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:70:  durationSec: z.number().nonnegative(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:71:  delaySec: z.number().nonnegative(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:72:  easing: EasingSchema,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:73:  direction: z.enum(["up", "down", "left", "right"]).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:74:  distance: z.number().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:75:  staggerSec: z.number().optional(),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:76:  custom: CustomAnimationSchema.optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:77:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:78:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:79:export const HighlightStyleSchema = z.enum([
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:80:  "none",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:81:  "color",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:82:  "sweep",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:189:  lineHeight: z.number().default(1.2),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:190:  letterSpacing: z.number().default(0.02),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:191:  wordSpacing: z.number().default(0).optional(),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:192:  align: z.enum(["left", "center", "right"]).default("center"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:193:  uppercase: z.boolean().default(false).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:194:  transform: z.enum(["uppercase", "lowercase", "capitalize", "none"]).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:195:  maxCharsPerLine: z.number().default(32),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:196:  maxLines: z.number().default(2),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:197:  maxWidth: z.number().default(90).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:198:  fill: z.string().default("#F4F1EA"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:221:  inactiveOpacity: z.number().min(0).max(1).default(0.7).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:222:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:223:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:224:export const WordTimingSourceSchema = z.enum(["whisper", "aligned", "snapped", "manual"]);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:225:export type WordTimingSource = z.infer<typeof WordTimingSourceSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:226:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:227:export const WordSchema = z.object({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:228:  id: z.string().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:229:  text: z.string(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:230:  startSec: z.number(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:233:  end: z.number().optional(),   // alias
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:234:  syllableStarts: z.array(z.number()).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:235:  confidence: z.number().min(0).max(1).default(1),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:236:  source: WordTimingSourceSchema.default("aligned").optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:237:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:238:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:239:export type WordTiming = {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:240:  id: string;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:241:  text: string;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:242:  start: number;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:261:  locked: z.boolean().default(false).optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:262:  section: z.string().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:263:  styleOverride: CaptionStyleSchema.partial().optional(),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:264:  animation: z.object({
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:265:    in: AnimSpecSchema,
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:266:    out: AnimSpecSchema,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:267:    highlight: HighlightSpecSchema,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:268:  }),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:269:  words: z.array(WordSchema),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:270:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:271:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:272:export type LineTiming = {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:283:  index?: number;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:284:};
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:285:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:286:export type Anim =
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:287:  | { type: "fade"; inMs: number; outMs: number }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:288:  | { type: "scale"; from: number; to: number; inMs: number; ease: string }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:289:  | { type: "bounce"; amp: number; ms: number }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:290:  | { type: "slide"; dx: number; dy: number; ms: number }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:291:  | { type: "karaoke-wipe" }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:292:  | { type: "typewriter" }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:303:  background: z.infer<typeof BackgroundLayerSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:304:  overlays: OverlaySpec[];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:305:  captionStyle: z.infer<typeof CaptionStyleSchema>;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:306:  animations: {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:307:    lineIn?: Anim[];
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:308:    wordActive?: Anim[];
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:309:    lineOut?: Anim[];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:310:  };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:311:};
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:312:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:313:export const AssetRefSchema = z.object({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:314:  id: z.string(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:315:  kind: z.enum(["audio", "image", "font", "lottie", "clip"]),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:322:export type OverlayType = (typeof OVERLAY_TYPES)[number];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:323:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:324:export const VISUALIZER_TYPES = ["bars", "wave", "circle", "mirror"] as const;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:325:export const VISUALIZER_POSITIONS = ["bottom", "middle", "behind-text", "custom"] as const;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:326:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:327:export const VisualizerConfigSchema = z.object({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:328:  type: z.enum(VISUALIZER_TYPES).default("bars"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:329:  colorA: z.string().default("#F5C15A"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:330:  colorB: z.string().default("#67F0FF"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:331:  sensitivity: z.number().min(0.1).max(3).default(1),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:386:  snapping: z.boolean().default(true),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:387:  quality: z.enum(QUALITY_PRESETS).default("high"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:388:  previewQuality: z.enum(["draft", "full"]).default("full"),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:389:  customBitrateKbps: z.number().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:390:  instrumentalDisplay: z.enum(["auto", "always-show", "hidden"]).default("auto"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:391:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:392:  // NEW 
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:393:  karaoke: z.boolean().default(true),        // global word-highlight on/off
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:394:  syncOffsetMs: z.number().min(-2000).max(2000).default(0), // global nudge
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:395:  wordLeadMs: z.number().min(-300).max(300).default(-40),   // per-word bias
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:400:  vocalStem: AssetRefSchema.optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:401:  background: BackgroundLayerSchema,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:402:  lottieAssetId: z.string().optional(),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:403:  customFontAssetId: z.string().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:404:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:405:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:406:export const ProjectSchema = z.object({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:407:  id: z.string(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:408:  version: z.number().int().nonnegative(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:409:  meta: ProjectMetaSchema,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:415:  templateId: z.string().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:416:  styleOverride: CaptionStyleSchema.partial().optional(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:417:  createdAt: z.string(),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:418:  updatedAt: z.string(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:419:});
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:420:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:421:export type Easing = z.infer<typeof EasingSchema>;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:422:export type AnimSpec = z.infer<typeof AnimSpecSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:423:export type HighlightSpec = z.infer<typeof HighlightSpecSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:424:export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:425:export type Word = z.infer<typeof WordSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:426:export type Caption = z.infer<typeof CaptionSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:427:export type AssetRef = z.infer<typeof AssetRefSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:428:export type BackgroundLayer = z.infer<typeof BackgroundLayerSchema>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:526:  return { type: "named", name };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:527:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:528:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:529:export function defaultAnim(preset: z.infer<typeof AnimPresetSchema> = "fade"): AnimSpec {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:530:  return {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:531:    preset,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:532:    durationSec: 0.25,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:533:    delaySec: 0,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:534:    easing: defaultEasing(),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:535:    direction: "up",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:547:    letterSpacing: 0.02,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:548:    wordSpacing: 0,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:549:    lineHeight: 1.2,
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:550:    align: "center",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:551:    transform: "none",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:552:    maxCharsPerLine: 32,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:553:    maxLines: 2,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:554:    fill: "#F4F1EA",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:555:    highlightFill: "#F5C15A",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:556:    pastFill: "#C8C2B4",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:648:    presetId: partial?.presetId ?? partial?.templateId ?? "seven-clouds",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:649:    templateId: partial?.templateId ?? partial?.presetId ?? "seven-clouds",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:650:    createdAt: partial?.createdAt ?? now,
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:651:    updatedAt: partial?.updatedAt ?? now,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:652:  };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:653:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:654:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:655:type LooseRecord = Record<string, unknown>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:656:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts:657:function isRecord(value: unknown): value is LooseRecord {
+### src/components/studio/inspector.tsx
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:29:const TABS = [
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:30:  { id: "templates", label: "Templates", icon: LayoutGrid },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:31:  { id: "text", label: "Text", icon: Type },
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:32:  { id: "animation", label: "Animation", icon: Play },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:33:  { id: "position", label: "Position", icon: Compass },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:34:  { id: "effects", label: "Effects & Style", icon: Palette },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:35:  { id: "background", label: "Backdrop", icon: ImageIcon },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:36:  { id: "visualizer", label: "Visualizer", icon: Activity },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:37:  { id: "overlays", label: "Atmosphere", icon: Layers },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:38:] as const;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:45:  { type: "embers", label: "Audio Embers", desc: "Beat-reactive sparks" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:46:  { type: "light-leak", label: "Light Leak", desc: "Vintage 16mm flares" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:47:  { type: "scanlines", label: "CRT Grain", desc: "Retro scanlines" },
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:48:  { type: "lottie", label: "Custom Lottie", desc: "Import JSON animation" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:49:];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:50:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:51:const GOOGLE_FONTS = [
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:52:  "Outfit",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:53:  "Montserrat",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:54:  "Bebas Neue",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:136:    [style.fill, style.highlightFill, style.pastFill, style.futureFill],
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:137:  );
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:138:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:139:  const patch = (p: Partial<typeof style>) => studio.updateStyle(p, selected ? "selected" : "default");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:140:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:141:  const overlay: OverlaySpec = studio.project.media?.background?.overlay ?? {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:142:    type: "none",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:143:    opacity: 0.85,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:144:    speed: 1,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:145:    scale: 1,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:164:      await fontFace.load();
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:165:      document.fonts.add(fontFace);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:166:      patch({ fontFamily: fontName });
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:167:      studio.notify(`Custom font "${fontName}" loaded!`);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:168:    } catch {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:169:      setUploadError("Could not load font file. Use .ttf, .otf, or .woff2.");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:170:    }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:171:  };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:172:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:173:  const handleBgImageUpload = async (file: File) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:178:        d.media.background.type = "image";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:179:        d.media.background.imageAssetId = assetId;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:180:      });
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:181:      studio.notify("Custom background backdrop applied!");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:182:    } catch {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:183:      setUploadError("Failed to store background image.");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:184:    }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:185:  };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:186:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:187:  const activeTemplateId = studio.project.templateId ?? studio.project.presetId ?? "seven-clouds";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:190:    <div className="flex h-full flex-col bg-[#090d16] text-[var(--ink)] select-none">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:191:      {/* ===== STICKY TOP HEADER ===== */}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:192:      <div className="shrink-0 border-b border-[var(--line)] bg-[#0c101a] p-3 space-y-2.5">
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:193:        {/* Scope Indicator Pill with Re-align Action */}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:194:        <div className="flex items-center justify-between rounded-lg bg-[#06080e] px-3 py-2 border border-white/5 text-[11px]">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:195:          <span className="text-[var(--muted)] flex items-center gap-1.5">
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:196:            <span className={`h-2 w-2 rounded-full ${selected ? "bg-[var(--accent)] animate-pulse" : "bg-emerald-400"}`} />
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:197:            {selected ? (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:198:              <strong className="text-[var(--accent)]">Editing Line #{selected.index + 1}</strong>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:199:            ) : (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:200:              <span>Global Design Defaults</span>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:201:            )}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:202:          </span>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:204:            {selected && (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:205:              <button
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:206:                type="button"
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:207:                onClick={() => studio.realignCaption(selected.id)}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:208:                className="flex items-center gap-1 text-[10px] bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold px-2 py-0.5 rounded-md border border-amber-500/30 transition-all shadow-sm"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:209:                title="Re-calculate word timings for this line using acoustic onset snapping"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:210:              >
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:211:                <RefreshCw size={10} /> Re-align Line
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:212:              </button>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:213:            )}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:214:            {overridden && (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:215:              <button
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:216:                type="button"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:217:                onClick={() => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:302:                      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: tpl.captionStyle.highlightFill }} />
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:303:                      <span>Karaoke: {tpl.captionStyle.karaoke ?? "wipe"}</span>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:304:                      <span></span>
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:305:                      <span>Anim: {tpl.animations?.lineIn?.[0]?.type ?? "fade"}</span>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:306:                    </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:307:                  </button>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:308:                );
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:309:              })}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:310:            </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:311:          </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:318:              <div className="flex items-center justify-between">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:319:                <label className="lf-label">Font Family</label>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:320:                <button type="button" onClick={() => fontInputRef.current?.click()} className="lf-btn-ghost text-[10px] py-1 px-2.5">
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:321:                  <Upload size={11} /> Custom Font
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:322:                </button>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:323:              </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:324:              <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" hidden onChange={(e) => e.target.files?.[0] && void handleFontUpload(e.target.files[0])} />
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:325:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:326:              <div className="grid grid-cols-2 gap-2">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:327:                <select
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:328:                  value={GOOGLE_FONTS.includes(style.fontFamily) ? style.fontFamily : "custom"}
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:329:                  onChange={(e) => { if (e.target.value !== "custom") patch({ fontFamily: e.target.value }); }}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:330:                  className="lf-select text-xs"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:331:                >
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:332:                  {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:333:                  <option value="custom">Custom font...</option>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:334:                </select>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:335:                <input
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:336:                  type="text"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:337:                  placeholder="Font name..."
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:338:                  value={style.fontFamily}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:339:                  onChange={(e) => patch({ fontFamily: e.target.value })}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:360:                  <button
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:361:                    key={a}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:362:                    type="button"
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:363:                    onClick={() => patch({ align: a })}
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:364:                    className={`lf-btn text-xs flex-1 !py-1.5 capitalize ${style.align === a ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:365:                  >
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:366:                    {a}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:367:                  </button>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:368:                ))}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:369:              </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:370:            </Section>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:378:          </>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:379:        )}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:380:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:381:        {/* TAB 3: ANIMATION & KARAOKE */}
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:382:        {activeTab === "animation" && (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:383:          <>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:384:            <Section title="Karaoke Mode & Wipe" icon={Play} defaultOpen={true}>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:385:              <div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:386:                <label className="lf-label">Karaoke Rendering Mode</label>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:387:                <div className="grid grid-cols-2 gap-2">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:388:                  {([
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:422:                <div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:423:                  <label className="lf-label">In-Transition</label>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:424:                  <select
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:425:                    value={selected?.animation?.in?.preset ?? "fade"}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:426:                    onChange={(e) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:427:                      const p = e.target.value;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:428:                      if (selected) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:429:                        studio.commit((d) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:430:                          const c = d.captions.find((x) => x.id === selected.id);
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:431:                          if (c) c.animation.in.preset = p as typeof c.animation.in.preset;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:432:                        });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:433:                      } else {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:434:                        studio.commit((d) => {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:435:                          for (const c of d.captions) c.animation.in.preset = p as typeof c.animation.in.preset;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:436:                        });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:437:                      }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:438:                    }}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:439:                    className="lf-select w-full text-xs"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:440:                  >
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:441:                    {["fade", "slide", "scale", "pop", "bounce", "blur", "wave", "typewriter", "cascade", "wipe", "spring", "none"].map((p) => (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:446:                <div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:447:                  <label className="lf-label">Out-Transition</label>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:448:                  <select
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:449:                    value={selected?.animation?.out?.preset ?? "fade"}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:450:                    onChange={(e) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:451:                      const p = e.target.value;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:452:                      if (selected) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:453:                        studio.commit((d) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:454:                          const c = d.captions.find((x) => x.id === selected.id);
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:455:                          if (c) c.animation.out.preset = p as typeof c.animation.out.preset;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:456:                        });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:457:                      }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:458:                    }}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:459:                    className="lf-select w-full text-xs"
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:460:                  >
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:461:                    {["fade", "slide", "scale", "pop", "bounce", "blur", "wipe", "spring", "none"].map((p) => (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:550:              {([
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:551:                { id: "album-blur", label: "Album Blur", desc: "Dynamic blur & Ken Burns" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:552:                { id: "gradient", label: "Gradient", desc: "Dual color mesh" },
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:553:                { id: "image", label: "Custom Image", desc: "Uploaded photo / art" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:554:                { id: "solid", label: "Solid Dark", desc: "Minimalist solid fill" },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:555:              ] as const).map((b) => {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:556:                const isSel = studio.project.media.background.type === b.id;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:557:                return (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:558:                  <button
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:559:                    key={b.id}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:575:            {(studio.project.media.background.type === "image" || studio.project.media.background.type === "album-blur") && (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:576:              <div className="pt-1 space-y-2">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:577:                <button type="button" onClick={() => bgImageInputRef.current?.click()} className="lf-btn-ghost w-full text-xs py-2">
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:578:                  <Upload size={14} /> Upload Custom Background Photo
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:579:                </button>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:580:                <input ref={bgImageInputRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && void handleBgImageUpload(e.target.files[0])} />
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:581:              </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:582:            )}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:583:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:584:            <div className="grid grid-cols-2 gap-2 pt-1">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:674:            {overlay.type !== "none" && (
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:675:              <div className="space-y-3 pt-2">
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:676:                <Slider label="Overlay Opacity" min={0.1} max={1} step={0.05} value={overlay.opacity} onChange={(v) => patchOverlay({ opacity: v })} />
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:677:                <Slider label="Animation Speed" min={0.2} max={3} step={0.1} value={overlay.speed} onChange={(v) => patchOverlay({ speed: v })} />
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:678:                <Slider label="Particle Density" min={0.5} max={2.5} step={0.1} value={overlay.scale} onChange={(v) => patchOverlay({ scale: v })} />
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:679:              </div>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:680:            )}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:681:          </Section>
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:682:        )}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx:683:      </div>
+### src/app/api/analyze/route.ts
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:1:import { readFile } from "node:fs/promises";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:2:import path from "node:path";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:3:import { asrCoverage, heuristicSync, parseLyrics, runSync, snapToSegments } from "@/align-engine";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:4:import { AsrResultSchema, type AnalyzeProgress, type AsrResult, type Caption } from "@/schema";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:5:import { getAsrCache, getAsset, putAsrCache } from "@/db/repository";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:6:import { deepAiAlignLyrics, llmTiebreak, transcribeAudio, validateKey } from "@/lib/groq";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:7:import { readGroqKey } from "@/lib/session";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:8:import { messageFor } from "@/lib/errors";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:9:import { createId } from "@/lib/ids";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:10:import { lyricsPromptWindow } from "@/align-engine/lyrics";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:11:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:12:export const runtime = "nodejs";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:13:export const dynamic = "force-dynamic";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:14:export const maxDuration = 120;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:15:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:16:const modelCache = new Map<string, { asr: string; llm: string; at: number }>();
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:17:async function getModelsCached(apiKey: string) {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:18:  const hit = modelCache.get(apiKey);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:19:  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:20:  const info = await validateKey(apiKey);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:21:  const rec = { asr: info.asr, llm: info.llm, at: Date.now() };
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:22:  modelCache.set(apiKey, rec);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:23:  return rec;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:24:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:25:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:26:function sse(event: string, data: unknown): string {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:27:  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:28:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:75:          });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:76:        }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:77:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:78:        let apiKey: string | null = null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:79:        try {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:80:          apiKey = await readGroqKey();
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:81:        } catch {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:82:          apiKey = null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:83:        }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:84:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:85:        let asr: AsrResult | null = null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:86:        let modelId = "heuristic";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:87:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:88:        let models: { asr: string; llm: string } | null = null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:89:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:90:        if (apiKey) {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:91:          send("C", "Contacting Groq Whisper for word-level ASR", 0.28);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:92:          try {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:93:            models = await getModelsCached(apiKey);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:94:            modelId = models.asr;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:95:          } catch {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:96:            modelId = "whisper-large-v3-turbo";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:97:          }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:98:          let blob: Blob | null = null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:99:          let filename = "audio.wav";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:133:                parsed.lines.filter((l) => !l.instrumental).map((l) => l.text),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:134:                0,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:135:              );
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:136:              asr = await transcribeAudio({
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:137:                apiKey,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:138:                file: blob,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:139:                filename,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:140:                language,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:141:                prompt,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:142:                model: modelId,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:143:              });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:151:            }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:152:          }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:153:        } else {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:154:          send("C", "No Groq key - using syllable-weighted heuristic timing", 0.36, {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:155:            detail: "Add a Groq key for Whisper word timestamps.",
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:156:          });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:157:        }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:158:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:159:        const dur = durationSec > 0 ? durationSec : asr?.duration ?? 180;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:160:        let captions: Caption[] = [];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:161:        let flagged = 0;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:168:        if (asr && asr.words && asr.words.length > 0 && coverage >= 0.15) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:169:          mode = "asr";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:170:          send("D", "Normalize tokens (NFKC, numerals, metaphone)", 0.52);
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:171:          send("E", "Needleman-Wunsch word-level alignment & hallucination purge", 0.64);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:172:          send("F", "Assign timestamps from sanitized ASR + FFT anchor warp", 0.74);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:173:          send("G", "Assembling timeline +  music breaks (ò3.5s)", 0.82);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:174:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:175:          const parsedAsr = AsrResultSchema.parse(asr);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:176:          if (!parsedAsr.text.trim()) throw new Error(messageFor("empty_asr"));
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:177:          const synced = runSync({ lines: parsed.lines, asr: parsedAsr, durationSec: dur, anchors });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:193:        }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:194:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:195:        send("H", "Score confidence", 0.9);
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:196:        if (apiKey && flagged > 0 && asr?.segments?.length && models && mode === "heuristic") {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:197:          // Heuristic fallback: ask the LLM to place lines on ASR segments,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:198:          // then snap envelopes to those segments. Word-level NW sync already
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:199:          // handles the asr path, so this only rescues the no-ASR case.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:200:          try {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:201:            const tiebreak = await llmTiebreak({
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:202:              apiKey,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:203:              model: models.llm,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:204:              payload: {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:205:                lyrics: captions.map((c, i) => ({ index: i, text: c.text })),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:206:                segments: (asr.segments ?? []).slice(0, 40).map((s, i) => ({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:207:                  index: i,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts:208:                  start: s.start,
+### src/app/api/session/route.ts
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:1:import { clearGroqKey, DEFAULT_GROQ_KEY, sessionHasKey, writeGroqKey } from "@/lib/session";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:2:import { validateKey } from "@/lib/groq";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:3:import { messageFor } from "@/lib/errors";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:4:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:5:export const runtime = "nodejs";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:6:export const dynamic = "force-dynamic";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:7:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:8:export async function GET() {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:9:  return Response.json({
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:10:    configured: await sessionHasKey(),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:11:    defaultKey: DEFAULT_GROQ_KEY,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:12:  });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:13:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:14:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:15:export async function DELETE() {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:16:  await clearGroqKey();
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:17:  return Response.json({ ok: true });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:18:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:19:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:20:export async function POST(req: Request) {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:21:  const body = (await req.json()) as { key?: string; persist?: "session" | "store" };
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:22:  const key = (body.key ?? "").trim() || DEFAULT_GROQ_KEY;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:23:  try {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:24:    const info = await validateKey(key);
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:25:    await writeGroqKey(key, body.persist === "store" ? "store" : "session");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:26:    return Response.json({ ok: true, asr: info.asr, llm: info.llm });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:27:  } catch (err) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:28:    const message = err instanceof Error ? err.message : messageFor("invalid_api_key");
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:29:    return Response.json({ ok: false, error: message }, { status: 401 });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:30:  }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts:31:}
+### src/lib/deep-align.ts
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:1:import type { AsrWord, Caption, Word } from "@/schema";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:2:import { defaultAnim } from "@/schema";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:3:import { createId } from "@/lib/ids";
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:4:import { distributeWordsInLine } from "@/align-engine";
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:5:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:6:export interface DeepAlignLine {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:7:  lineIndex: number; // vocal-line ordinal (0-based)
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:8:  startSec: number;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:9:  endSec: number;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:10:  confidence: number;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:11:  matchedText?: string;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:12:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:13:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:14:export interface DeepAlignResult {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:15:  alignedLines: DeepAlignLine[];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:16:  instrumentalBreaks?: { startSec: number; endSec: number; label?: string }[];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:17:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:18:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:19:export interface DeepAlignPromptInput {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:20:  lines: { index: number; text: string; section?: string }[];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:21:  segments: { index: number; start: number; end: number; text: string }[];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:22:  durationSec: number;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:23:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:24:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:25:export const DEEP_ALIGN_SYSTEM = `You are an expert audio-to-lyric synchronization and song structure alignment AI.
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:26:Your task is to accurately map each lyric line to its exact heard time interval [startSec, endSec] in the audio based on the ASR speech transcript segments.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:27:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:28:Rules:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:29:1. Every lyric line sung in the audio must be mapped with its real [startSec, endSec] timestamps.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:30:2. Timestamps must be strictly non-decreasing (monotonic). Line N+1 cannot start before Line N starts.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:31:3. If an instrumental intro exists (e.g. 0s to 18s), the first lyric line MUST start when singing actually begins, NOT at 0s!
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:32:4. If an instrumental solo, break, or interlude occurs between verses/choruses, the next lyric line must start after the break ends.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:35:7. Cover EVERY lyric line. Do not skip lines: a missed line breaks the whole timeline.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:36:8. Output strictly valid JSON:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:37:{
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:38:  "alignedLines": [
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:39:    { "lineIndex": 0, "startSec": 15.2, "endSec": 18.5, "confidence": 0.95, "matchedText": "heard words" }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:40:  ],
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:41:  "instrumentalBreaks": [
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:42:    { "startSec": 0, "endSec": 15.2, "label": "Intro" }
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:43:  ]
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:44:}`;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:45:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:46:export function buildDeepAlignPrompts(input: DeepAlignPromptInput): { system: string; user: string } {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:47:  return {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:48:    system: DEEP_ALIGN_SYSTEM,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:49:    user: JSON.stringify({
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:50:      totalDurationSec: input.durationSec,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:51:      lyricLines: input.lines,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:52:      heardAudioSegments: input.segments,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:53:    }),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:54:  };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:55:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:56:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:57:/**
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:58: * Validates an LLM deep-alignment response.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:59: * Rejects anything non-monotonic, out of bounds, or with crushed line spans.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:60: */
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:61:export function parseDeepAlign(raw: unknown, durationSec: number): DeepAlignResult | null {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:62:  if (!raw || typeof raw !== "object") return null;
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:63:  const rows = (raw as { alignedLines?: unknown }).alignedLines;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:64:  if (!Array.isArray(rows) || rows.length === 0) return null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:65:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:66:  const lines: DeepAlignLine[] = [];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:67:  for (const row of rows) {
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:68:    if (!row || typeof row !== "object") return null;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:69:    const r = row as Record<string, unknown>;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:70:    const lineIndex = Number(r.lineIndex);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:71:    const startSec = Number(r.startSec);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:72:    const endSec = Number(r.endSec);
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:103:        .filter((b): b is { startSec: number; endSec: number; label: string | undefined } => b !== null)
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:104:    : [];
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:105:
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:106:  return { alignedLines: lines, instrumentalBreaks };
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:107:}
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:108:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:109:/**
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:110: * Repairs caption envelopes with LLM deep-alignment results.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:111: * Only touches lines where the LLM is at least as confident as the current
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:112: * estimate, or the current line is weak (<0.65). Re-distributes words inside
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:113: * each repaired window using the ASR words that fall in it, then re-enforces
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:114: * global monotonic ordering and rebuilds instrumental gaps.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:115: *
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:116: * Returns the repaired captions plus how many lines were moved.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:117: */
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:118:export function applyDeepAlignRepair(
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:119:  captions: Caption[],
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:120:  deep: DeepAlignResult,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:121:  asrWords: AsrWord[],
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:122:  durationSec: number,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:123:): { captions: Caption[]; repaired: number } {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:124:  const deepByOrdinal = new Map(deep.alignedLines.map((l) => [l.lineIndex, l]));
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:125:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:126:  // Work on vocal captions in their current order; ordinal = vocal order,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:127:  // matching the indices the LLM was given.
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:128:  const vocals: Caption[] = captions.filter((c) => !c.instrumental).map((c) => ({ ...c, words: c.words.map((w) => ({ ...w })) }));
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:129:
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:130:  let repaired = 0;
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:205:        start: prev.endSec,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:206:        end: cap.startSec,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:207:        words: [],
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:208:        animation: {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:209:          in: defaultAnim("fade"),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:210:          out: defaultAnim("fade"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:211:          highlight: { style: "color", intensity: 0.4 },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:212:        },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:213:        confidence: 1,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:214:        locked: false,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:215:        instrumental: true,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:216:      });
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:230:      start: 0,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:231:      end: first.startSec,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:232:      words: [],
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:233:      animation: {
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:234:        in: defaultAnim("fade"),
+> A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:235:        out: defaultAnim("fade"),
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:236:        highlight: { style: "color", intensity: 0.4 },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:237:      },
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:238:      confidence: 1,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:239:      locked: false,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:240:      instrumental: true,
+  A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts:241:    });

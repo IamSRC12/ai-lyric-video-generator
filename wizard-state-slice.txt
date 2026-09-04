@@ -1,0 +1,106 @@
+}
+
+export function Wizard() {
+  const router = useRouter();
+  const [activeNav, setActiveNav] = useState<number>(1);
+  const [key, setKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [persist, setPersist] = useState<"session" | "store">("session");
+  const [keyOk, setKeyOk] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [hasSessionKey, setHasSessionKey] = useState(false);
+
+  const [songTitle, setSongTitle] = useState("");
+  const [artistName, setArtistName] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  const [duration, setDuration] = useState(0);
+  const [audioMeta, setAudioMeta] = useState<string>("");
+  const [lyrics, setLyrics] = useState("");
+  const [clips, setClips] = useState<ClipMap[]>([]);
+  const [log, setLog] = useState<string[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [doneElapsedSec, setDoneElapsedSec] = useState<number | null>(null);
+  const [etaMs, setEtaMs] = useState<number | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // Audio audition state
+  const [playingClip, setPlayingClip] = useState<string | null>(null);
+  const [playingMaster, setPlayingMaster] = useState(false);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const clipRef = useRef<HTMLInputElement>(null);
+  const keySectionRef = useRef<HTMLDivElement>(null);
+  const audioSectionRef = useRef<HTMLDivElement>(null);
+  const lyricsSectionRef = useRef<HTMLDivElement>(null);
+  const clipsSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void fetch("/api/session").then((r) => r.json()).then((j: { configured?: boolean; defaultKey?: string }) => {
+      if (j.configured) { setHasSessionKey(true); setKeyOk(true); }
+      if (j.defaultKey) setKey((prev) => prev || j.defaultKey || "");
+    }).catch(() => undefined);
+  }, []);
+
+  const parsed = useMemo(() => parseLyrics(lyrics), [lyrics]);
+  const vocalCount = parsed.lines.filter((l) => !l.instrumental).length;
+  const instrumentalCount = parsed.lines.filter((l) => l.instrumental).length;
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (parsed.title && !songTitle) setSongTitle(parsed.title);
+      if (parsed.artist && !artistName) setArtistName(parsed.artist);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [parsed.title, parsed.artist, songTitle, artistName]);
+
+  const scrollToSection = (index: number) => {
+    setActiveNav(index);
+    const refs = [keySectionRef, audioSectionRef, lyricsSectionRef, clipsSectionRef];
+    refs[index - 1]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  async function validateKey() {
+    setKeyError(null); setValidating(true);
+    try {
+      const activeKey = key.trim();
+      if (!activeKey) { setKeyError("Please enter a Groq API key."); setKeyOk(false); setValidating(false); return; }
+      const res = await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: activeKey, persist }) });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) { setKeyError(json.error ?? "Could not validate that key."); setKeyOk(false); return; }
+      setKeyOk(true); setHasSessionKey(true); setKey(activeKey);
+    } catch { setKeyError("Network error while validating key."); setKeyOk(false); }
+    finally { setValidating(false); }
+  }
+
+  // Audition playback helper
+  const playAudioClip = (file: File, id: string) => {
+    if (playingClip === id || (id === "master" && playingMaster)) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current = null;
+      }
+      setPlayingClip(null);
+      setPlayingMaster(false);
+      return;
+    }
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+
+    const url = URL.createObjectURL(file);
+    const audio = new Audio(url);
+    audioPlayerRef.current = audio;
+    if (id === "master") setPlayingMaster(true);
+    else setPlayingClip(id);
+
+    audio.onended = () => {
+      setPlayingClip(null);
+      setPlayingMaster(false);
+      audioPlayerRef.current = null;
+      URL.revokeObjectURL(url);

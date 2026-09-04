@@ -1,0 +1,3251 @@
+===== src/app/api/analyze/route.ts =====
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { asrCoverage, heuristicSync, parseLyrics, runSync, snapToSegments } from "@/align-engine";
+import { AsrResultSchema, type AnalyzeProgress, type AsrResult, type Caption } from "@/schema";
+import { getAsrCache, getAsset, putAsrCache } from "@/db/repository";
+import { deepAiAlignLyrics, llmTiebreak, transcribeAudio, validateKey } from "@/lib/groq";
+import { readGroqKey } from "@/lib/session";
+import { messageFor } from "@/lib/errors";
+import { createId } from "@/lib/ids";
+import { lyricsPromptWindow } from "@/align-engine/lyrics";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+const modelCache = new Map<string, { asr: string; llm: string; at: number }>();
+async function getModelsCached(apiKey: string) {
+  const hit = modelCache.get(apiKey);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit;
+  const info = await validateKey(apiKey);
+  const rec = { asr: info.asr, llm: info.llm, at: Date.now() };
+  modelCache.set(apiKey, rec);
+  return rec;
+}
+
+function sse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+export async function POST(req: Request) {
+  const form = await req.formData();
+  const lyrics = String(form.get("lyrics") ?? "");
+  const language = String(form.get("language") ?? "en");
+  const durationSec = Number(form.get("durationSec") ?? 0);
+  const assetId = String(form.get("assetId") ?? "");
+  const title = String(form.get("title") ?? "");
+  const artist = String(form.get("artist") ?? "");
+  const audio = form.get("audio");
+  const anchorsRaw = form.get("anchors");
+  let anchors: import("@/schema").AnchorHit[] = [];
+  if (anchorsRaw && typeof anchorsRaw === "string") {
+    try {
+      anchors = JSON.parse(anchorsRaw);
+    } catch {}
+  }
+  const parsed = parseLyrics(lyrics);
+  if (title && !parsed.title) parsed.title = title;
+  if (artist && !parsed.artist) parsed.artist = artist;
+
+  const encoder = new TextEncoder();
+  const started = Date.now();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (stage: AnalyzeProgress["stage"], label: string, progress: number, extra?: Record<string, unknown>) => {
+        const elapsedMs = Date.now() - started;
+        const etaMs = progress > 0.05 ? Math.round((elapsedMs * (1 - progress)) / progress) : null;
+        const payload = { stage, label, progress, elapsedMs, etaMs, ...extra };
+        controller.enqueue(encoder.encode(sse("progress", payload)));
+      };
+      try {
+        send("A", "Preprocess É?" inspecting audio and lyric sheet", 0.08);
+        if (parsed.lines.filter((l) => !l.instrumental).length === 0) {
+          throw new Error("Lyric sheet is empty. Paste lines; blank lines mark instrumental gaps.");
+        }
+
+        if (anchors.length > 0) {
+          const vocalAnchors = anchors.filter((a) => a.lineIndex >= 0).length;
+          const musicAnchors = anchors.length - vocalAnchors;
+          send("B", `FFT anchors É?" locked ${vocalAnchors} cut clips + ${musicAnchors} music zones to the master track`, 0.18, {
+            anchorsCount: anchors.length,
+          });
+        } else {
+          send("B", "FFT anchors É?" waiting on optional split clips", 0.16, {
+            detail: "No split clips supplied; skipping Stage B (highest-quality anchors).",
+          });
+        }
+
+        let apiKey: string | null = null;
+        try {
+          apiKey = await readGroqKey();
+        } catch {
+          apiKey = null;
+        }
+
+        let asr: AsrResult | null = null;
+        let modelId = "heuristic";
+
+        let models: { asr: string; llm: string } | null = null;
+
+        if (apiKey) {
+          send("C", "Contacting Groq Whisper for word-level ASR", 0.28);
+          try {
+            models = await getModelsCached(apiKey);
+            modelId = models.asr;
+          } catch {
+            modelId = "whisper-large-v3-turbo";
+          }
+          let blob: Blob | null = null;
+          let filename = "audio.wav";
+          let sha = "";
+          if (audio instanceof File) {
+            blob = audio;
+            filename = audio.name;
+            const buf = Buffer.from(await audio.arrayBuffer());
+            sha = `${buf.length}_${buf.subarray(0, 64).toString("hex")}`;
+            if (audio.size > 25 * 1024 * 1024) {
+              throw new Error(messageFor("oversized_upload"));
+            }
+          } else if (assetId) {
+            const asset = await getAsset(assetId);
+            if (asset) {
+              const abs = path.join(process.cwd(), asset.path);
+              const buf = await readFile(abs);
+              blob = new Blob([buf], { type: asset.mime });
+              filename = asset.filename;
+              sha = asset.sha256 ?? `${buf.length}`;
+            }
+          }
+          if (blob) {
+            let cached: AsrResult | null = null;
+            if (sha) {
+              try {
+                cached = await getAsrCache(sha, modelId, language);
+              } catch (err) {
+                console.warn("ASR cache read failed:", err);
+              }
+            }
+            if (cached) {
+              asr = cached;
+              send("C", "ASR cache hit É?" skipping Whisper", 0.42);
+            } else {
+              const prompt = lyricsPromptWindow(
+                parsed.lines.filter((l) => !l.instrumental).map((l) => l.text),
+                0,
+              );
+              asr = await transcribeAudio({
+                apiKey,
+                file: blob,
+                filename,
+                language,
+                prompt,
+                model: modelId,
+              });
+              if (sha && asr) {
+                try {
+                  await putAsrCache(sha, modelId, language, asr);
+                } catch (err) {
+                  console.warn("ASR cache write failed:", err);
+                }
+              }
+            }
+          }
+        } else {
+          send("C", "No Groq key É?" using syllable-weighted heuristic timing", 0.36, {
+            detail: "Add a Groq key for Whisper word timestamps.",
+          });
+        }
+
+        const dur = durationSec > 0 ? durationSec : asr?.duration ?? 180;
+        let captions: Caption[] = [];
+        let flagged = 0;
+        let meanConfidence = 0;
+        let mode: "asr" | "heuristic" = "heuristic";
+
+        const fullLyricText = parsed.lines.filter((l) => !l.instrumental).map((l) => l.text).join(" ");
+        const coverage = asr?.words?.length ? asrCoverage(asr.words, fullLyricText) : 0;
+
+        if (asr && asr.words && asr.words.length > 0 && coverage >= 0.15) {
+          mode = "asr";
+          send("D", "Normalize tokens (NFKC, numerals, metaphone)", 0.52);
+          send("E", "NeedlemanÉ?"Wunsch word-level alignment & hallucination purge", 0.64);
+          send("F", "Assign timestamps from sanitized ASR + FFT anchor warp", 0.74);
+          send("G", "Assembling timeline + ÉT¶ music breaks (É%ù3.5s)", 0.82);
+
+          const parsedAsr = AsrResultSchema.parse(asr);
+          if (!parsedAsr.text.trim()) throw new Error(messageFor("empty_asr"));
+          const synced = runSync({ lines: parsed.lines, asr: parsedAsr, durationSec: dur, anchors });
+          captions = synced.captions;
+          flagged = synced.flagged;
+          meanConfidence = synced.meanConfidence;
+          if (synced.droppedAsrWords > 0) {
+            send("F", `Filtered ${synced.droppedAsrWords} hallucinated ASR words`, 0.78);
+          }
+        } else {
+          mode = "heuristic";
+          if (asr && coverage < 0.15) {
+            send("C", "Whisper coverage low (<15%) É?" falling back to syllable-weighted heuristic sync", 0.45);
+          }
+          const synced = heuristicSync(parsed.lines, dur);
+          captions = asr ? snapToSegments(synced.captions, asr) : synced.captions;
+          flagged = synced.flagged;
+          meanConfidence = synced.meanConfidence;
+        }
+
+        send("H", "Score confidence", 0.9);
+        if (apiKey && flagged > 0 && asr?.segments?.length && models && mode === "heuristic") {
+          // Heuristic fallback: ask the LLM to place lines on ASR segments,
+          // then snap envelopes to those segments. Word-level NW sync already
+          // handles the asr path, so this only rescues the no-ASR case.
+          try {
+            const tiebreak = await llmTiebreak({
+              apiKey,
+              model: models.llm,
+              payload: {
+                lyrics: captions.map((c, i) => ({ index: i, text: c.text })),
+                segments: (asr.segments ?? []).slice(0, 40).map((s, i) => ({
+                  index: i,
+                  start: s.start,
+                  end: s.end,
+                  text: s.text,
+                })),
+              },
+            });
+            if (tiebreak && tiebreak.map.length > 0) {
+              const segs = asr.segments ?? [];
+              for (const row of tiebreak.map) {
+                const cap = captions[row.lyricIndex];
+                const seg = segs[row.segmentIndex];
+                if (!cap || !seg || cap.instrumental) continue;
+                captions[row.lyricIndex] = {
+                  ...cap,
+                  startSec: Math.max(0, seg.start),
+                  endSec: Math.max(seg.start + 1.0, Math.min(seg.end, seg.start + 12)),
+                  confidence: Math.max(cap.confidence, 0.55),
+                };
+              }
+              send("H", `LLM placed ${tiebreak.map.length} lines onto heard segments`, 0.93);
+            }
+          } catch (err) {
+            console.warn("LLM tiebreak optional step failed:", err);
+          }
+        }
+
+        send("done", `Sync complete (${mode.toUpperCase()})`, 1, {
+          captions,
+          flagged,
+          meanConfidence,
+          mode,
+          title: parsed.title,
+          artist: parsed.artist,
+          jobId: createId("job"),
+        });
+        controller.close();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : messageFor("generic");
+        controller.enqueue(encoder.encode(sse("progress", { stage: "error", label: message, progress: 1 })));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
+===== src/app/api/session/route.ts =====
+import { clearGroqKey, DEFAULT_GROQ_KEY, sessionHasKey, writeGroqKey } from "@/lib/session";
+import { validateKey } from "@/lib/groq";
+import { messageFor } from "@/lib/errors";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  return Response.json({
+    configured: await sessionHasKey(),
+    defaultKey: DEFAULT_GROQ_KEY,
+  });
+}
+
+export async function DELETE() {
+  await clearGroqKey();
+  return Response.json({ ok: true });
+}
+
+export async function POST(req: Request) {
+  const body = (await req.json()) as { key?: string; persist?: "session" | "store" };
+  const key = (body.key ?? "").trim() || DEFAULT_GROQ_KEY;
+  try {
+    const info = await validateKey(key);
+    await writeGroqKey(key, body.persist === "store" ? "store" : "session");
+    return Response.json({ ok: true, asr: info.asr, llm: info.llm });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : messageFor("invalid_api_key");
+    return Response.json({ ok: false, error: message }, { status: 401 });
+  }
+}
+===== src/lib/session.ts =====
+import { cookies } from "next/headers";
+import { createId } from "./ids";
+import { getSession, upsertSession } from "@/db/repository";
+
+const COOKIE = "lyricforge_sid";
+
+export async function getOrCreateSessionId(): Promise<string> {
+  const jar = await cookies();
+  const existing = jar.get(COOKIE)?.value;
+  if (existing) return existing;
+  const id = createId("ses");
+  jar.set(COOKIE, id, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 14,
+  });
+  return id;
+}
+
+export const DEFAULT_GROQ_KEY = process.env.GROQ_API_KEY || "";
+
+export async function readGroqKey(): Promise<string | null> {
+  const envKey = process.env.GROQ_API_KEY;
+  if (envKey && envKey.length > 8) return envKey;
+  const sid = await getOrCreateSessionId();
+  const session = await getSession(sid);
+  if (session?.groqKey && new Date(session.expiresAt).getTime() >= Date.now()) {
+    return session.groqKey;
+  }
+  return DEFAULT_GROQ_KEY;
+}
+
+export async function writeGroqKey(key: string, persist: "session" | "store"): Promise<void> {
+  const sid = await getOrCreateSessionId();
+  const ttl = persist === "store" ? 14 : 1;
+  await upsertSession({
+    id: sid,
+    groqKey: key,
+    persist,
+    expiresAt: new Date(Date.now() + ttl * 24 * 60 * 60 * 1000).toISOString(),
+  });
+}
+
+export async function clearGroqKey(): Promise<void> {
+  const sid = await getOrCreateSessionId();
+  await upsertSession({
+    id: sid,
+    groqKey: null,
+    persist: "session",
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  });
+}
+
+export async function sessionHasKey(): Promise<boolean> {
+  return Boolean(await readGroqKey());
+}
+===== src/components/wizard.tsx =====
+"use client";
+
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  AudioLines,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Clipboard,
+  Eye,
+  EyeOff,
+  FileAudio,
+  Film,
+  Info,
+  KeyRound,
+  Layers,
+  Lock,
+  Music,
+  Play,
+  Radio,
+  Sparkles,
+  Square,
+  Trash2,
+  Upload,
+  Volume2,
+  Zap,
+} from "lucide-react";
+import { defaultProject, type Caption, type AnchorHit } from "@/schema";
+import { heuristicSync, parseLyrics } from "@/align-engine";
+import { createId } from "@/lib/ids";
+import { decodeAudio, encodeWavMono16, extractPeaks, downsampleMono } from "@/lib/audio-client";
+import { crossCorrelate } from "@/dsp";
+import { putBlob, putPeaks } from "@/lib/idb";
+import { naturalSort } from "@/lib/time";
+
+const SAMPLE_LYRICS = `[Verse 1]
+Four in the morning
+And I'm still wide awake
+Counting the cracks in the ceiling
+Like they're my last mistake
+
+[Chorus]
+If the night is a map then I'm lost on purpose
+Pin every heartbeat to a borrowed sky
+Say it slower so the dark can rehearse us
+We only glow when we almost arrive
+
+[Verse 2]
+Vinyl dust on a kitchen table
+Your laugh still lives in the hallway light
+I would trade the whole constellation
+For one more ordinary night
+`;
+
+interface ClipMap {
+  name: string;
+  file: File;
+  lineIndex: number;
+  isInstrumental: boolean;
+  matchScore: number;
+  matchReason: string;
+  durationSec?: number;
+  offsetSec?: number;
+  fftLocked?: boolean;
+}
+
+function autoMapClip(file: File, lines: { index: number; text: string; instrumental?: boolean }[]): ClipMap {
+  const name = file.name;
+  const stem = name.replace(/\.[^.]+$/, "").toLowerCase();
+
+  const instrumentalKeywords = ["instrumental", "intro", "gap", "break", "solo", "outro", "interlude", "pause", "music"];
+  const hasInstrumentalWord = instrumentalKeywords.some((kw) => stem.includes(kw));
+
+  const cleanStem = stem
+    .replace(/^(\d+)[-_]/, "")
+    .replace(/line[-_]?0*(\d+)[-_]?/i, "")
+    .replace(/[-_.]+/g, " ")
+    .trim();
+
+  const stemTokens = cleanStem.split(/\s+/).filter((w) => w.length > 1);
+
+  const lineNumMatch = stem.match(/line[-_]?0*(\d+)/i);
+  const targetLineNumber = lineNumMatch ? parseInt(lineNumMatch[1], 10) : null;
+
+  const vocalLines = lines.filter((l) => !l.instrumental);
+
+  let bestLineIndex = 0;
+  let bestScore = 0;
+  let bestReason = "Sequential";
+
+  if (hasInstrumentalWord && !targetLineNumber && stemTokens.length <= 2) {
+    return { name, file, lineIndex: -1, isInstrumental: true, matchScore: 0.95, matchReason: "Instrumental Gap" };
+  }
+
+  if (targetLineNumber !== null && targetLineNumber >= 1 && targetLineNumber <= vocalLines.length) {
+    const matchedVocal = vocalLines[targetLineNumber - 1];
+    if (matchedVocal) { bestLineIndex = matchedVocal.index; bestScore = 0.98; bestReason = `Line #${targetLineNumber}`; }
+  }
+
+  for (const l of vocalLines) {
+    const lineLower = l.text.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+    const lineTokens = lineLower.split(/\s+/).filter(Boolean);
+
+    if (cleanStem.length > 4 && lineLower.includes(cleanStem)) {
+      if (0.99 > bestScore) { bestScore = 0.99; bestLineIndex = l.index; bestReason = "100% Match"; }
+    }
+
+    let matchCount = 0;
+    for (const st of stemTokens) { if (lineTokens.some((lt) => lt.includes(st) || st.includes(lt))) matchCount++; }
+    const tokenScore = stemTokens.length > 0 ? matchCount / stemTokens.length : 0;
+    if (tokenScore > bestScore && tokenScore > 0.3) { bestScore = tokenScore; bestLineIndex = l.index; bestReason = `${Math.round(tokenScore * 100)}% Match`; }
+  }
+
+  return { name, file, lineIndex: bestLineIndex, isInstrumental: false, matchScore: bestScore || 0.8, matchReason: bestReason };
+}
+
+export function Wizard() {
+  const router = useRouter();
+  const [activeNav, setActiveNav] = useState<number>(1);
+  const [key, setKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [persist, setPersist] = useState<"session" | "store">("session");
+  const [keyOk, setKeyOk] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [hasSessionKey, setHasSessionKey] = useState(false);
+
+  const [songTitle, setSongTitle] = useState("");
+  const [artistName, setArtistName] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  const [duration, setDuration] = useState(0);
+  const [audioMeta, setAudioMeta] = useState<string>("");
+  const [lyrics, setLyrics] = useState("");
+  const [clips, setClips] = useState<ClipMap[]>([]);
+  const [log, setLog] = useState<string[]>([]);
+  const [progress, setProgress] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [doneElapsedSec, setDoneElapsedSec] = useState<number | null>(null);
+  const [etaMs, setEtaMs] = useState<number | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // Audio audition state
+  const [playingClip, setPlayingClip] = useState<string | null>(null);
+  const [playingMaster, setPlayingMaster] = useState(false);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const clipRef = useRef<HTMLInputElement>(null);
+  const keySectionRef = useRef<HTMLDivElement>(null);
+  const audioSectionRef = useRef<HTMLDivElement>(null);
+  const lyricsSectionRef = useRef<HTMLDivElement>(null);
+  const clipsSectionRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void fetch("/api/session").then((r) => r.json()).then((j: { configured?: boolean; defaultKey?: string }) => {
+      if (j.configured) { setHasSessionKey(true); setKeyOk(true); }
+      if (j.defaultKey) setKey((prev) => prev || j.defaultKey || "");
+    }).catch(() => undefined);
+  }, []);
+
+  const parsed = useMemo(() => parseLyrics(lyrics), [lyrics]);
+  const vocalCount = parsed.lines.filter((l) => !l.instrumental).length;
+  const instrumentalCount = parsed.lines.filter((l) => l.instrumental).length;
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (parsed.title && !songTitle) setSongTitle(parsed.title);
+      if (parsed.artist && !artistName) setArtistName(parsed.artist);
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [parsed.title, parsed.artist, songTitle, artistName]);
+
+  const scrollToSection = (index: number) => {
+    setActiveNav(index);
+    const refs = [keySectionRef, audioSectionRef, lyricsSectionRef, clipsSectionRef];
+    refs[index - 1]?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  async function validateKey() {
+    setKeyError(null); setValidating(true);
+    try {
+      const activeKey = key.trim();
+      if (!activeKey) { setKeyError("Please enter a Groq API key."); setKeyOk(false); setValidating(false); return; }
+      const res = await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: activeKey, persist }) });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) { setKeyError(json.error ?? "Could not validate that key."); setKeyOk(false); return; }
+      setKeyOk(true); setHasSessionKey(true); setKey(activeKey);
+    } catch { setKeyError("Network error while validating key."); setKeyOk(false); }
+    finally { setValidating(false); }
+  }
+
+  // Audition playback helper
+  const playAudioClip = (file: File, id: string) => {
+    if (playingClip === id || (id === "master" && playingMaster)) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current = null;
+      }
+      setPlayingClip(null);
+      setPlayingMaster(false);
+      return;
+    }
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+
+    const url = URL.createObjectURL(file);
+    const audio = new Audio(url);
+    audioPlayerRef.current = audio;
+    if (id === "master") setPlayingMaster(true);
+    else setPlayingClip(id);
+
+    audio.onended = () => {
+      setPlayingClip(null);
+      setPlayingMaster(false);
+      audioPlayerRef.current = null;
+      URL.revokeObjectURL(url);
+    };
+
+    audio.play().catch(() => {
+      setPlayingClip(null);
+      setPlayingMaster(false);
+    });
+  };
+
+  // Cached master audio buffers for zero-latency re-use
+  const masterAudioBufferRef = useRef<AudioBuffer | null>(null);
+  const masterMonoRef = useRef<Float32Array | null>(null);
+
+  async function onAudio(file: File) {
+    try {
+      const buf = await file.arrayBuffer();
+      const decoded = await decodeAudio(buf);
+      masterAudioBufferRef.current = decoded;
+      masterMonoRef.current = downsampleMono(decoded, 16000);
+
+      setAudioFile(file);
+      setDuration(decoded.duration);
+      if (!songTitle) setSongTitle(file.name.replace(/\.[^.]+$/, ""));
+      const p = extractPeaks(decoded, 240);
+      setPeaks(Array.from(p));
+      setAudioMeta(`${file.name} A˙ ${(file.size / 1024 / 1024).toFixed(1)} MB A˙ ${decoded.duration.toFixed(1)}s A˙ ${(decoded.sampleRate / 1000).toFixed(1)}kHz`);
+      await putBlob("draft-master", file);
+      await putPeaks("draft-master", p);
+    } catch { setAudioMeta("Could not decode that audio file."); }
+  }
+
+  const handlePasteClipboard = async () => { try { const text = await navigator.clipboard.readText(); if (text) setLyrics(text); } catch {} };
+
+  const handleClipsUpload = async (uploadedFiles: File[]) => {
+    const sorted = Array.from(uploadedFiles).sort((a, b) => naturalSort(a.name, b.name));
+    const initialClips = sorted.map((file) => autoMapClip(file, parsed.lines));
+    setClips(initialClips);
+
+    // If master audio is loaded, run hierarchical fast FFT cross-correlation with UI yields
+    if (audioFile && (masterMonoRef.current || masterAudioBufferRef.current)) {
+      try {
+        let masterMono = masterMonoRef.current;
+        if (!masterMono && masterAudioBufferRef.current) {
+          masterMono = downsampleMono(masterAudioBufferRef.current, 16000);
+          masterMonoRef.current = masterMono;
+        }
+        if (!masterMono) {
+          const decoded = await decodeAudio(await audioFile.arrayBuffer());
+          masterAudioBufferRef.current = decoded;
+          masterMono = downsampleMono(decoded, 16000);
+          masterMonoRef.current = masterMono;
+        }
+
+        const updated = [...initialClips];
+        for (let i = 0; i < updated.length; i++) {
+          const clip = updated[i];
+          if (!clip) continue;
+          try {
+            // Yield to browser event loop so UI stays fluid
+            await new Promise((r) => setTimeout(r, 0));
+            const clipDecoded = await decodeAudio(await clip.file.arrayBuffer());
+            const clipMono = downsampleMono(clipDecoded, 16000);
+            const hit = crossCorrelate(masterMono, clipMono, 16000);
+            if (hit.peakConfidence >= 0.35) {
+              updated[i] = {
+                ...clip,
+                durationSec: clipDecoded.duration,
+                offsetSec: hit.offsetSec,
+                matchScore: hit.peakConfidence,
+                matchReason: `FFT ${(hit.peakConfidence * 100).toFixed(0)}% @ ${hit.offsetSec.toFixed(1)}s`,
+                fftLocked: true,
+              };
+              setClips([...updated]);
+            }
+          } catch {}
+        }
+      } catch (err) {
+        console.warn("Background FFT matching failed:", err);
+      }
+    }
+  };
+
+  async function generateWithoutAudio() {
+    setRunning(true);
+    setStartedAt(Date.now());
+    setEtaMs(2000);
+    setLog(["Parsing lyric sheet...", "Generating synchronized captions...", "Detecting instrumental breaks > 3.0s..."]);
+    setProgress(0.4);
+    const estDuration = Math.max(30, vocalCount * 3.8);
+    const sync = heuristicSync(parsed.lines, estDuration);
+    const project = defaultProject({
+      id: createId("proj"),
+      meta: { title: songTitle.trim() || parsed.title || "Custom Lyrics", artist: artistName.trim() || parsed.artist || "Unknown Artist", durationSec: estDuration, fps: 30, resolution: "1920x1080", aspectRatio: "16:9", language: "en" },
+      captions: sync.captions,
+    });
+    setProgress(0.8);
+    const saved = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project }) });
+    if (!saved.ok) {
+      const errText = await saved.text().catch(() => "Unknown");
+      setLog((curr) => [...curr, `Error saving project: ${errText}`]);
+      setRunning(false);
+      return;
+    }
+    const json = (await saved.json()) as { project: { id: string } };
+    setProgress(1); setDoneElapsedSec(startedAt != null ? (Date.now() - startedAt) / 1000 : null); setLog((curr) => [...curr, "Project ready! Opening Studio..."]); setRunning(false);
+    startTransition(() => router.push(`/studio/${json.project.id}`));
+  }
+
+  async function analyze() {
+    if (!audioFile) { await generateWithoutAudio(); return; }
+    setRunning(true);
+    setStartedAt(Date.now());
+    setEtaMs(Math.round((6 + duration * 0.22) * 1000)); // initial estimate
+    setLog(["Starting speech & DSP alignment pipeline..."]);
+    setProgress(0.1);
+    const form = new FormData();
+    form.set("lyrics", lyrics); form.set("durationSec", String(duration));
+    form.set("title", songTitle.trim() || parsed.title || audioFile.name.replace(/\.[^.]+$/, ""));
+    form.set("artist", artistName.trim() || parsed.artist || "Unknown Artist"); form.set("language", "en");
+
+    try {
+      let masterMono = masterMonoRef.current;
+      if (!masterMono) {
+        const decoded = masterAudioBufferRef.current || (await decodeAudio(await audioFile.arrayBuffer()));
+        masterAudioBufferRef.current = decoded;
+        masterMono = downsampleMono(decoded, 16000);
+        masterMonoRef.current = masterMono;
+      }
+      const wav = encodeWavMono16(masterMono, 16000);
+      form.set("audio", new File([wav], "master.wav", { type: "audio/wav" }));
+
+      // Fast collect anchors (reuse already locked clips, or correlate remaining)
+      const anchors: AnchorHit[] = [];
+      for (const clip of clips) {
+        if (clip.lineIndex < 0 && !clip.isInstrumental) continue;
+        if (clip.fftLocked && clip.offsetSec !== undefined) {
+          anchors.push({
+            lineIndex: clip.lineIndex,
+            offsetSec: clip.offsetSec,
+            durationSec: clip.durationSec,
+            peakConfidence: clip.matchScore,
+          });
+        } else {
+          try {
+            const clipDecoded = await decodeAudio(await clip.file.arrayBuffer());
+            const clipMono = downsampleMono(clipDecoded, 16000);
+            const hit = crossCorrelate(masterMono, clipMono, 16000);
+            if (hit.peakConfidence >= 0.35) {
+              anchors.push({
+                lineIndex: clip.lineIndex,
+                offsetSec: hit.offsetSec,
+                durationSec: clipDecoded.duration,
+                peakConfidence: hit.peakConfidence,
+              });
+            }
+          } catch {}
+        }
+      }
+
+      if (anchors.length > 0) {
+        setLog((curr) => [...curr, `Éo" Locked ${anchors.length} cut audio clips with FFT precision!`]);
+        form.set("anchors", JSON.stringify(anchors));
+      }
+
+      const res = await fetch("/api/analyze", { method: "POST", body: form });
+      if (!res.body) { setLog(["The analyze stream failed."]); setRunning(false); return; }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = ""; let captions: Caption[] = []; let flagged = 0;
+      let title = songTitle.trim() || parsed.title || "Untitled";
+      let artist = artistName.trim() || parsed.artist || "Unknown Artist";
+      let streamFailed = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const chunks = buf.split("\n\n"); buf = chunks.pop() ?? "";
+        for (const chunk of chunks) {
+          const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          try {
+            const payload = JSON.parse(line.slice(5).trim()) as {
+              stage: string;
+              label: string;
+              progress: number;
+              captions?: Caption[];
+              flagged?: number;
+              mode?: string;
+              title?: string;
+              artist?: string;
+              etaMs?: number | null;
+            };
+            setProgress(payload.progress);
+            if (payload.etaMs != null) setEtaMs(payload.etaMs);
+            if (payload.progress >= 1 && startedAt != null) setDoneElapsedSec((Date.now() - startedAt) / 1000);
+            setLog((curr) => [...curr, `${payload.stage}  ${payload.label}`]);
+            if (payload.mode) setLog((curr) => [...curr, payload.mode === "asr" ? "Éo" High-accuracy Groq Whisper aligned" : "É,1 Syllable-weighted timing applied"]);
+            if (payload.stage === "error") streamFailed = true;
+            if (payload.captions) captions = payload.captions;
+            if (payload.flagged !== undefined) flagged = payload.flagged;
+            if (payload.title && !songTitle) title = payload.title;
+            if (payload.artist && !artistName) artist = payload.artist;
+          } catch {}
+        }
+      }
+
+      if (streamFailed && captions.length === 0) {
+        setLog((curr) => [...curr, "Whisper unavailable. Falling back to heuristic..."]);
+        const sync = heuristicSync(parsed.lines, duration || Math.max(30, vocalCount * 3.8)); captions = sync.captions;
+      }
+
+      const project = defaultProject({
+        id: createId("proj"),
+        meta: { title, artist, durationSec: duration, fps: 30, resolution: "1920x1080", aspectRatio: "16:9", language: "en" },
+        captions,
+      });
+      await putBlob(`audio-${project.id}`, audioFile);
+      const saved = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project }) });
+      if (!saved.ok) {
+        const errText = await saved.text().catch(() => "Unknown");
+        setLog((curr) => [...curr, `Error: ${errText}`]);
+        setRunning(false);
+        return;
+      }
+      const json = (await saved.json()) as { project: { id: string } };
+      setLog((curr) => [...curr, flagged ? `Review ${flagged} flagged lines in studio.` : "All lines aligned!"]);
+      setRunning(false); startTransition(() => router.push(`/studio/${json.project.id}`));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Generation error";
+      setLog((curr) => [...curr, `Error: ${msg}. Falling back...`]);
+      await generateWithoutAudio();
+    }
+  }
+
+  const navSteps = [
+    { id: 1, label: "API Key", status: keyOk ? "Ready" : "Required" },
+    { id: 2, label: "Master Audio", status: audioFile ? `${(duration / 60).toFixed(0)}m` : "Optional" },
+    { id: 3, label: "Lyrics", status: vocalCount > 0 ? `${vocalCount} lines` : "Required" },
+    { id: 4, label: "Cut Audio Slices", status: clips.length > 0 ? `${clips.length} stems` : "Optional" },
+  ];
+
+  return (
+    <div className="mx-auto w-full max-w-6xl space-y-6 pb-16">
+      {/* Sticky Step Navigation */}
+      <nav className="sticky top-3 z-40 flex items-center gap-3 overflow-x-auto rounded-xl border border-[var(--line)] bg-[var(--bg-elev)] px-3 py-2.5 shadow-lg lf-scroll">
+        <div className="flex items-center gap-2.5 overflow-x-auto">
+          {navSteps.map((item) => {
+            const isActive = activeNav === item.id;
+            const isComplete = item.status === "Ready" || item.status.includes("lines") || item.status.includes("m") || item.status.includes("stems");
+            return (
+              <button key={item.id} type="button" onClick={() => scrollToSection(item.id)}
+                className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-all duration-200 ${
+                  isActive
+                    ? "bg-gradient-to-r from-[var(--accent)] to-red-600 text-[var(--accent-ink)] shadow-[0_0_20px_rgba(239,68,68,0.35)] scale-105"
+                    : `border border-[var(--line)] bg-[var(--bg-panel)] ${isComplete ? "text-[var(--accent)] border-[var(--accent)]/30" : "text-[var(--faint)]"} hover:border-[var(--accent)]/50 hover:text-[var(--ink)]`
+                }`}>
+                <span className={`h-5 w-5 flex items-center justify-center rounded-full text-[10px] font-bold ${isActive ? "bg-black/30" : isComplete ? "bg-[var(--accent)]/20 text-[var(--accent)]" : "bg-white/5"}`}>{item.id}</span>
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="hidden sm:flex items-center gap-2">
+          <span className="lf-badge bg-[var(--purple)]/15 text-[var(--purple)] border border-[var(--purple)]/25 text-[11px] font-medium">
+            <Radio size={12} className="animate-pulse" /> Auto Music Detect
+          </span>
+          <span className="flex items-center gap-1.5 text-xs text-[var(--accent)] font-semibold px-2 py-1 rounded-lg bg-[var(--accent)]/10">
+            <Sparkles size={13} /> Perfect Sync
+          </span>
+        </div>
+      </nav>
+
+      {/* Main Form Grid */}
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+        <div className="space-y-6">
+          {/* STEP 1: API Key */}
+          <section ref={keySectionRef} className="lf-card lf-rise lf-rise-1 relative overflow-hidden">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-red-700 text-xs font-bold text-black shadow-md">1</span>
+                <div>
+                  <h3 className="text-base font-semibold text-[var(--ink)]">Groq Whisper API Key</h3>
+                  <p className="text-[11px] text-[var(--faint)]">Word-level timestamps with Whisper Large v3</p>
+                </div>
+              </div>
+              {keyOk && <span className="lf-badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"><CheckCircle2 size={13} /> Active & Ready</span>}
+            </div>
+            <p className="text-xs leading-relaxed text-[var(--muted)] mb-4">
+              Powers instant phonetic transcription and AI semantic alignment. Keys are safely verified directly via SSL.
+            </p>
+            <div className="relative">
+              <input type={showKey ? "text" : "password"} autoComplete="off" placeholder="gsk_É?›" value={key} onChange={(e) => { setKey(e.target.value); setKeyOk(false); }} className="lf-input pr-10 font-mono text-xs" />
+              <button type="button" onClick={() => setShowKey(!showKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--ink)] transition-colors">{showKey ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-xs text-[var(--muted)] cursor-pointer hover:text-[var(--ink)] transition-colors">
+                  <input type="checkbox" checked={persist === "store"} onChange={(e) => setPersist(e.target.checked ? "store" : "session")} className="accent-[var(--accent)]" />
+                  Remember key
+                </label>
+                {!key && (
+                  <button type="button" onClick={() => { void fetch("/api/session").then((r) => r.json()).then((j: { defaultKey?: string }) => { if (j.defaultKey) setKey(j.defaultKey); setKeyOk(false); }).catch(() => undefined); }} className="text-xs text-[var(--accent)] hover:underline font-medium">Use server key</button>
+                )}
+              </div>
+              <button type="button" disabled={validating} onClick={() => void validateKey()} className="lf-btn-accent text-xs">
+                <KeyRound size={14} /> {validating ? "VerifyingÉ?›" : keyOk ? "Re-verify" : "Validate Key"}
+              </button>
+            </div>
+            {keyError && <p className="mt-3 text-xs text-[var(--danger)] bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">{keyError}</p>}
+          </section>
+
+          {/* STEP 2: Master Audio Deck */}
+          <section ref={audioSectionRef} className="lf-card lf-rise lf-rise-2">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-red-700 text-xs font-bold text-black shadow-md">2</span>
+                <div>
+                  <h3 className="text-base font-semibold text-[var(--ink)]">Master / Original Audio</h3>
+                  <p className="text-[11px] text-[var(--faint)]">Full song track (MP3, WAV, FLAC, M4A)</p>
+                </div>
+              </div>
+              {audioFile && (
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => playAudioClip(audioFile, "master")} className="lf-btn-ghost text-xs py-1 px-2.5">
+                    {playingMaster ? <Square size={13} className="text-amber-400" /> : <Play size={13} className="text-emerald-400" />}
+                    {playingMaster ? "Stop" : "Audition"}
+                  </button>
+                  <span className="lf-badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">{duration.toFixed(1)}s</span>
+                </div>
+              )}
+            </div>
+
+            <div onClick={() => fileRef.current?.click()} className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[var(--line)] bg-[var(--bg)] px-6 py-8 transition-all hover:border-[var(--accent)]/50 hover:bg-white/[0.02] group">
+              <div className="h-12 w-12 rounded-full bg-[var(--accent)]/10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                <Upload className="text-[var(--accent)]" size={22} />
+              </div>
+              <span className="text-sm font-semibold text-[var(--ink)]">{audioFile ? audioFile.name : "Drop master audio file or click to browse"}</span>
+              <span className="mt-1 text-xs text-[var(--faint)]">{audioMeta || "Supports MP3, WAV, FLAC, M4A, AAC, OGG"}</span>
+            </div>
+            <input ref={fileRef} type="file" accept="audio/*" hidden onChange={(e) => e.target.files?.[0] && void onAudio(e.target.files[0])} />
+
+            {peaks.length > 0 && (
+              <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-4 shadow-inner">
+                <div className="flex items-center justify-between text-xs text-[var(--faint)] mb-2.5">
+                  <span className="flex items-center gap-2 text-[var(--accent)] font-medium"><Music size={14} />{audioFile?.name}</span>
+                  <span className="font-mono text-xs">{duration.toFixed(1)}s</span>
+                </div>
+                <div className="flex h-14 items-end gap-0.5 px-1 py-1 rounded-lg bg-[#05070a]">
+                  {peaks.map((p, i) => (
+                    <span key={i} className="flex-1 rounded-t-sm transition-all" style={{ height: `${Math.max(8, p * 100)}%`, background: `linear-gradient(to top, rgba(239, 68, 68, 0.4), rgba(251, 191, 36, 0.85))` }} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {audioFile && (
+              <div className="mt-3 flex justify-end">
+                <button type="button" onClick={() => { setAudioFile(null); setPeaks([]); setDuration(0); setAudioMeta(""); if (playingMaster && audioPlayerRef.current) { audioPlayerRef.current.pause(); setPlayingMaster(false); } }} className="lf-btn-ghost text-xs !text-red-400 !border-red-500/20 hover:!bg-red-500/10">
+                  <Trash2 size={13} /> Remove Audio
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* STEP 3: Lyrics & Metadata */}
+          <section ref={lyricsSectionRef} className="lf-card lf-rise lf-rise-3">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--accent)] to-red-700 text-xs font-bold text-black shadow-md">3</span>
+                <div>
+                  <h3 className="text-base font-semibold text-[var(--ink)]">Lyric Sheet & Track Details</h3>
+                  <p className="text-[11px] text-[var(--faint)]">Blank lines mark music breaks</p>
+                </div>
+              </div>
+              {vocalCount > 0 && <span className="lf-badge bg-[var(--accent)]/15 text-[var(--accent)] border border-[var(--accent)]/30 font-semibold">{vocalCount} vocal lines</span>}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="lf-label">Song Title</label>
+                <input type="text" placeholder="e.g. Four In The Morning" value={songTitle} onChange={(e) => setSongTitle(e.target.value)} className="lf-input text-xs" />
+              </div>
+              <div>
+                <label className="lf-label">Artist Name</label>
+                <input type="text" placeholder="e.g. Original Artist" value={artistName} onChange={(e) => setArtistName(e.target.value)} className="lf-input text-xs" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <button type="button" onClick={() => { setSongTitle("Four in the morning"); setArtistName("Original Artist"); setLyrics(SAMPLE_LYRICS); }} className="lf-btn-ghost text-xs py-1.5 px-3">
+                <Sparkles size={13} className="text-amber-400" /> Sample Lyrics
+              </button>
+              <button type="button" onClick={handlePasteClipboard} className="lf-btn-ghost text-xs py-1.5 px-3">
+                <Clipboard size={13} /> Paste
+              </button>
+              {lyrics && <button type="button" onClick={() => setLyrics("")} className="lf-btn-ghost text-xs py-1.5 px-3 !text-red-400 !border-red-500/20 hover:!bg-red-500/10"><Trash2 size={13} /> Clear</button>}
+            </div>
+
+            <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} placeholder={`[Verse 1]\nFirst lyric line\nSecond lyric line\n\n[Chorus]\nChorus line one\nChorus line two`} className="lf-input resize-y font-mono text-xs leading-6" style={{ minHeight: "13rem" }} />
+
+            {/* Smart Music Gap Feature Note */}
+            <div className="mt-3 flex items-start gap-2.5 p-3 rounded-xl border border-[var(--purple)]/20 bg-[var(--purple)]/5 text-xs text-[var(--muted)]">
+              <Info size={16} className="text-[var(--purple)] shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-[var(--ink)]">Automatic Music Breaks (&ge; 3.0s) Enabled:</strong> Gaps between lyrics, song intros, and outros greater than 3 seconds will automatically display as <span className="text-[var(--purple)] font-semibold">ÉT¶ Music ÉT¶</span> blocks with audio-reactive visualizers in the Studio timeline.
+              </div>
+            </div>
+          </section>
+
+          {/* STEP 4: Cut Audio / Line Slices Deck */}
+          <section ref={clipsSectionRef} className="lf-card lf-rise lf-rise-4">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-[var(--line)]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--purple)] to-indigo-600 text-xs font-bold text-white shadow-md">4</span>
+                <div>
+                  <h3 className="text-base font-semibold text-[var(--ink)]">Cut Audio Slices / Stems</h3>
+                  <p className="text-[11px] text-[var(--faint)]">Optional DSP FFT Cross-Correlation anchors</p>
+                </div>
+              </div>
+              {clips.length > 0 && <span className="lf-badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"><CheckCircle2 size={13} /> {clips.length} cuts mapped</span>}
+            </div>
+            <p className="text-xs leading-relaxed text-[var(--muted)] mb-4">
+              If you have separate vocal slices or cut audio files (e.g., <code>01.wav</code>, <code>line_01.wav</code>), upload them here. The system uses high-speed FFT Cross-Correlation to rigidly lock their exact timing in the master track!
+            </p>
+            <button type="button" onClick={() => clipRef.current?.click()} className="lf-btn-ghost w-full py-5 justify-center border-dashed border-[var(--line-strong)] hover:border-[var(--purple)]/50 hover:bg-[var(--purple)]/5 transition-all">
+              <FileAudio size={18} className="text-[var(--purple)]" />
+              <span className="font-medium text-xs">Add Cut Audio / Line Slices</span>
+            </button>
+            <input ref={clipRef} type="file" accept="audio/*" multiple hidden onChange={(e) => { if (e.target.files && e.target.files.length > 0) handleClipsUpload(Array.from(e.target.files)); }} />
+
+            {clips.length > 0 && (
+              <div className="mt-4 space-y-3">
+                <div className="max-h-56 overflow-auto rounded-xl border border-[var(--line)] lf-scroll bg-[var(--bg)] shadow-inner">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-[var(--line)] bg-[var(--bg-panel)] sticky top-0"><tr>
+                      <th className="px-3.5 py-2.5 text-[10px] uppercase tracking-wider text-[var(--faint)]">Play</th>
+                      <th className="px-3.5 py-2.5 text-[10px] uppercase tracking-wider text-[var(--faint)]">Clip Name</th>
+                      <th className="px-3.5 py-2.5 text-[10px] uppercase tracking-wider text-[var(--faint)]">Matched Lyric Line</th>
+                      <th className="px-3.5 py-2.5 text-[10px] uppercase tracking-wider text-[var(--faint)] text-right">Lock Status</th>
+                    </tr></thead>
+                    <tbody>{clips.map((c, i) => (
+                      <tr key={c.name} className="border-t border-white/5 hover:bg-white/[0.02] transition-colors">
+                        <td className="px-3.5 py-2">
+                          <button type="button" onClick={() => playAudioClip(c.file, c.name)} className="p-1.5 rounded-lg hover:bg-white/10 text-[var(--muted)] hover:text-[var(--accent)] transition-colors">
+                            {playingClip === c.name ? <Square size={13} className="text-amber-400" /> : <Play size={13} className="text-emerald-400" />}
+                          </button>
+                        </td>
+                        <td className="px-3.5 py-2 font-mono text-[11px] truncate max-w-[180px]" title={c.name}>{c.name}</td>
+                        <td className="px-3.5 py-2">
+                          <select value={c.lineIndex} className="bg-[var(--bg-panel)] border border-[var(--line)] rounded-md px-2 py-1 text-xs text-[var(--ink)] focus:outline-none focus:border-[var(--accent)] cursor-pointer" onChange={(e) => {
+                            const next = [...clips]; const val = Number(e.target.value);
+                            next[i] = { ...c, lineIndex: val, isInstrumental: val === -1, matchReason: val === -1 ? "Instrumental" : "Manual" }; setClips(next);
+                          }}>
+                            <option value={-1}>ÉT¶ Instrumental Break</option>
+                            {parsed.lines.filter((l) => !l.instrumental).map((l) => <option key={l.index} value={l.index}>#{l.index + 1}: {l.text.slice(0, 32)}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-3.5 py-2 text-right">
+                          <span className={`lf-badge text-[10px] ${c.fftLocked ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/25" : c.isInstrumental ? "bg-purple-500/15 text-purple-300 border border-purple-500/25" : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"}`}>
+                            {c.fftLocked && <Lock size={10} />}
+                            {c.matchReason}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+                <div className="flex justify-between items-center text-xs text-[var(--faint)]">
+                  <span>{clips.filter((c) => c.fftLocked).length} FFT locked cuts</span>
+                  <button type="button" onClick={() => setClips([])} className="lf-btn-ghost text-xs !text-red-400 !border-red-500/20 hover:!bg-red-500/10">Clear all clips</button>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {/* Right Column: Launch Deck */}
+        <div className="space-y-6">
+          <section className="sticky top-20 lf-card border-[var(--line-strong)] bg-gradient-to-b from-[#111724] to-[#0c1017] shadow-2xl">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-[var(--line)]">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-[var(--accent)] flex items-center gap-1.5">
+                <Sparkles size={14} /> Production Deck
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-[var(--faint)]"><Film size={14} /> 1080p60 MP4</span>
+            </div>
+
+            {/* Track Summary Card */}
+            <div className="rounded-2xl border border-[var(--line)] bg-[#07090e]/80 p-4 mb-5 shadow-inner">
+              <p className="text-[10px] uppercase tracking-widest text-[var(--faint)] mb-1 font-mono">Current Project</p>
+              <h4 className="text-lg font-bold text-[var(--ink)] truncate">{songTitle.trim() || parsed.title || (lyrics ? "Untitled Project" : "Ready for Lyrics")}</h4>
+              <p className="text-xs text-[var(--accent)] mt-0.5 font-medium truncate">{artistName.trim() || parsed.artist || "Unknown Artist"}</p>
+              
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl bg-[var(--bg-panel)] p-2.5 border border-[var(--line)]">
+                  <span className="lf-label" style={{ marginBottom: 0 }}>Master Audio</span>
+                  <span className="block font-semibold text-[var(--ink)] mt-0.5">{audioFile ? `${duration.toFixed(1)}s` : "Heuristic"}</span>
+                </div>
+                <div className="rounded-xl bg-[var(--bg-panel)] p-2.5 border border-[var(--line)]">
+                  <span className="lf-label" style={{ marginBottom: 0 }}>Vocal Lines</span>
+                  <span className="block font-semibold text-[var(--accent)] mt-0.5">{vocalCount} lines ready</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-3 mb-5">
+              <button type="button" disabled={running || pending || vocalCount === 0} onClick={() => void analyze()} className="lf-btn-accent lf-glow w-full text-sm py-4 shadow-[0_4px_24px_rgba(239,68,68,0.3)]">
+                <Sparkles size={18} /> {running ? "Aligning & Syncing PipelineÉ?›" : audioFile ? "Generate with Multi-Source AI Sync" : "Generate Lyric Video"}
+              </button>
+              <button type="button" disabled={running || pending || vocalCount === 0} onClick={() => void generateWithoutAudio()} className="lf-btn-ghost w-full text-xs py-2.5">
+                <Zap size={14} className="text-[var(--accent)]" /> Fast Heuristic Mode (No Audio)
+              </button>
+            </div>
+
+            {/* Pipeline Execution Log */}
+            {(running || log.length > 0) && (
+              <div className="rounded-xl border border-[var(--line)] bg-[#05070a] p-3.5 space-y-2.5 shadow-inner">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[var(--accent)] font-medium flex items-center gap-1.5"><AudioLines size={13} /> Pipeline Status</span>
+                  <span className="font-mono text-[var(--muted)]">
+                    {Math.round(progress * 100)}%
+                    {etaMs != null && progress < 1 && (
+                      <span className="ml-2 text-[var(--faint)]">
+                        ~{Math.max(1, Math.ceil(etaMs / 1000))}s left
+                      </span>
+                    )}
+                    {progress >= 1 && doneElapsedSec != null && (
+                      <span className="ml-2 text-[var(--ok)]">
+                        done in {doneElapsedSec.toFixed(1)}s
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#1c2230]">
+                  <div className="h-full rounded-full bg-gradient-to-r from-[var(--accent)] via-red-500 to-red-700 transition-[width] duration-500 ease-out" style={{ width: `${progress * 100}%` }} />
+                </div>
+                <ul className="max-h-36 overflow-auto space-y-1.5 font-mono text-[10px] text-[var(--muted)] pt-1 lf-scroll">
+                  {log.slice(-12).map((line, i) => (
+                    <li key={`${line}-${i}`} className="flex items-start gap-1.5">
+                      <span className="text-[var(--accent)] select-none">É?ß</span>
+                      <span>{line}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Feature Badges */}
+            <div className="mt-5 pt-4 border-t border-[var(--line)] space-y-2 text-xs text-[var(--muted)]">
+              <div className="flex items-center gap-2"><Check size={14} className="text-emerald-400" /> DSP FFT Cross-Correlation Anchor Precision</div>
+              <div className="flex items-center gap-2"><Check size={14} className="text-emerald-400" /> Deep AI Semantic Mapping (Llama 3.3 70B)</div>
+              <div className="flex items-center gap-2"><Check size={14} className="text-purple-400" /> Automatic Music & Instrumental Gap Detection (&gt;3s)</div>
+              <div className="flex items-center gap-2"><Check size={14} className="text-amber-400" /> Hardware Accelerated 1080p60 WebCodecs MP4</div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+===== src/components/studio/inspector.tsx =====
+"use client";
+
+import { useMemo, useState, useRef } from "react";
+import {
+  Sparkles,
+  Upload,
+  Type,
+  Palette,
+  Play,
+  Layers,
+  Activity,
+  Image as ImageIcon,
+  ChevronDown,
+  ChevronRight,
+  Flame,
+  LayoutGrid,
+  Sun,
+  SlidersHorizontal,
+  Compass,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
+import { TEMPLATES } from "@/render-engine";
+import { useStudio } from "@/store/studio-store";
+import type { OverlayType, OverlaySpec, VisualizerType, KaraokeMode } from "@/schema";
+import { ColorField, Slider } from "../ui-kit";
+import { putBlob } from "@/lib/idb";
+
+const TABS = [
+  { id: "templates", label: "Templates", icon: LayoutGrid },
+  { id: "text", label: "Text", icon: Type },
+  { id: "animation", label: "Animation", icon: Play },
+  { id: "position", label: "Position", icon: Compass },
+  { id: "effects", label: "Effects & Style", icon: Palette },
+  { id: "background", label: "Backdrop", icon: ImageIcon },
+  { id: "visualizer", label: "Visualizer", icon: Activity },
+  { id: "overlays", label: "Atmosphere", icon: Layers },
+] as const;
+
+const OVERLAY_OPTIONS: { type: OverlayType; label: string; desc: string }[] = [
+  { type: "none", label: "None", desc: "Clean background" },
+  { type: "bokeh", label: "Bokeh Orbs", desc: "Warm ambient particles" },
+  { type: "starfield", label: "Starfield", desc: "Deep space warp" },
+  { type: "soundwave", label: "Soundwave", desc: "Audio frequency ripples" },
+  { type: "embers", label: "Audio Embers", desc: "Beat-reactive sparks" },
+  { type: "light-leak", label: "Light Leak", desc: "Vintage 16mm flares" },
+  { type: "scanlines", label: "CRT Grain", desc: "Retro scanlines" },
+  { type: "lottie", label: "Custom Lottie", desc: "Import JSON animation" },
+];
+
+const GOOGLE_FONTS = [
+  "Outfit",
+  "Montserrat",
+  "Bebas Neue",
+  "Orbitron",
+  "Fraunces",
+  "Cinzel",
+  "Space Grotesk",
+  "Righteous",
+  "Inter",
+  "Poppins",
+  "Syne",
+  "Playfair Display",
+  "Permanent Marker",
+  "Rubik",
+  "Pacifico",
+];
+
+function Section({
+  title,
+  icon: Icon,
+  badge,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  icon?: React.ComponentType<{ size: number; className?: string }>;
+  badge?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#0d121c] overflow-hidden shadow-sm transition-all hover:border-white/15">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-3.5 py-3 text-xs font-bold text-[var(--ink)] hover:bg-white/[0.03] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {Icon && <Icon size={14} className="text-[var(--accent)]" />}
+          <span>{title}</span>
+          {badge && (
+            <span className="text-[9px] font-semibold text-[var(--accent)] bg-[var(--accent)]/15 px-1.5 py-0.5 rounded-full border border-[var(--accent)]/30">
+              {badge}
+            </span>
+          )}
+        </div>
+        {open ? <ChevronDown size={14} className="text-[var(--faint)]" /> : <ChevronRight size={14} className="text-[var(--faint)]" />}
+      </button>
+      {open && <div className="px-3.5 pb-4 pt-1 space-y-3.5 border-t border-white/5">{children}</div>}
+    </div>
+  );
+}
+
+export function Inspector() {
+  const studio = useStudio();
+  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]["id"]>("templates");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const fontInputRef = useRef<HTMLInputElement>(null);
+  const lottieInputRef = useRef<HTMLInputElement>(null);
+  const bgImageInputRef = useRef<HTMLInputElement>(null);
+
+  const selected = studio.project.captions.find((c) => c.id === studio.selectedIds[0]);
+  const style = selected?.styleOverride
+    ? { ...studio.project.defaultStyle, ...selected.styleOverride }
+    : studio.project.defaultStyle;
+  const overridden = Boolean(selected?.styleOverride);
+
+  const recentColors = useMemo(
+    () => [
+      style.fill ?? "#F4F1EA",
+      style.highlightFill ?? "#F5C15A",
+      style.pastFill ?? "#C8C2B4",
+      style.futureFill ?? "#F4F1EA",
+      "#F5C15A",
+      "#FFE600",
+      "#00FFA3",
+      "#67F0FF",
+      "#FF1493",
+      "#FFFFFF",
+      "#000000",
+      "#10B981",
+    ],
+    [style.fill, style.highlightFill, style.pastFill, style.futureFill],
+  );
+
+  const patch = (p: Partial<typeof style>) => studio.updateStyle(p, selected ? "selected" : "default");
+
+  const overlay: OverlaySpec = studio.project.media?.background?.overlay ?? {
+    type: "none",
+    opacity: 0.85,
+    speed: 1,
+    scale: 1,
+    blendMode: "screen",
+  };
+
+  const patchOverlay = (p: Partial<OverlaySpec>) => {
+    studio.commit((d) => {
+      if (!d.media.background.overlay) {
+        d.media.background.overlay = { type: "none", opacity: 0.85, speed: 1, scale: 1, blendMode: "screen" };
+      }
+      d.media.background.overlay = { ...d.media.background.overlay, ...p };
+    });
+  };
+
+  const handleFontUpload = async (file: File) => {
+    try {
+      setUploadError(null);
+      const fontName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const buffer = await file.arrayBuffer();
+      const fontFace = new FontFace(fontName, buffer);
+      await fontFace.load();
+      document.fonts.add(fontFace);
+      patch({ fontFamily: fontName });
+      studio.notify(`Custom font "${fontName}" loaded!`);
+    } catch {
+      setUploadError("Could not load font file. Use .ttf, .otf, or .woff2.");
+    }
+  };
+
+  const handleBgImageUpload = async (file: File) => {
+    try {
+      const assetId = `bg-${studio.project.id}-${Date.now()}`;
+      await putBlob(assetId, file);
+      studio.commit((d) => {
+        d.media.background.type = "image";
+        d.media.background.imageAssetId = assetId;
+      });
+      studio.notify("Custom background backdrop applied!");
+    } catch {
+      setUploadError("Failed to store background image.");
+    }
+  };
+
+  const activeTemplateId = studio.project.templateId ?? studio.project.presetId ?? "seven-clouds";
+
+  return (
+    <div className="flex h-full flex-col bg-[#090d16] text-[var(--ink)] select-none">
+      {/* ===== STICKY TOP HEADER ===== */}
+      <div className="shrink-0 border-b border-[var(--line)] bg-[#0c101a] p-3 space-y-2.5">
+        {/* Scope Indicator Pill with Re-align Action */}
+        <div className="flex items-center justify-between rounded-lg bg-[#06080e] px-3 py-2 border border-white/5 text-[11px]">
+          <span className="text-[var(--muted)] flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${selected ? "bg-[var(--accent)] animate-pulse" : "bg-emerald-400"}`} />
+            {selected ? (
+              <strong className="text-[var(--accent)]">Editing Line #{selected.index + 1}</strong>
+            ) : (
+              <span>Global Design Defaults</span>
+            )}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {selected && (
+              <button
+                type="button"
+                onClick={() => studio.realignCaption(selected.id)}
+                className="flex items-center gap-1 text-[10px] bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold px-2 py-0.5 rounded-md border border-amber-500/30 transition-all shadow-sm"
+                title="Re-calculate word timings for this line using acoustic onset snapping"
+              >
+                <RefreshCw size={10} /> Re-align Line
+              </button>
+            )}
+            {overridden && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (selected) {
+                    studio.commit((d) => {
+                      const c = d.captions.find((x) => x.id === selected.id);
+                      if (c) delete c.styleOverride;
+                    });
+                  }
+                }}
+                className="text-[10px] text-[var(--accent)] hover:underline font-bold"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* CapCut Navigation Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto lf-scroll pb-1">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all shrink-0 ${
+                  isActive
+                    ? "bg-[var(--accent)] text-[var(--accent-ink)] shadow-md scale-[1.02]"
+                    : "text-[var(--muted)] hover:text-white hover:bg-white/5 border border-transparent"
+                }`}
+              >
+                <Icon size={12} />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {uploadError && (
+        <div className="m-3 rounded-xl border border-red-500/30 bg-red-950/40 p-2.5 text-xs text-red-200">{uploadError}</div>
+      )}
+
+      {/* ===== SCROLLABLE CONTROLS BODY ===== */}
+      <div className="flex-1 overflow-y-auto lf-scroll p-3 space-y-3.5">
+        {/* TAB 1: TEMPLATES GALLERY */}
+        {activeTab === "templates" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-[var(--accent)]" /> CapCut Design Presets
+                </h3>
+                <p className="text-[10px] text-[var(--faint)]">Instant theme switching. Lyric timings are NEVER mutated.</p>
+              </div>
+              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                <ShieldCheck size={10} /> Sync Safe
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              {TEMPLATES.map((tpl) => {
+                const isCurrent = activeTemplateId === tpl.id;
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => studio.applyTemplate(tpl.id)}
+                    className={`flex flex-col text-left rounded-xl p-3 transition-all border ${
+                      isCurrent
+                        ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_16px_rgba(239,68,68,0.15)] ring-1 ring-[var(--accent)]"
+                        : "border-white/10 bg-[#0d121c] hover:border-white/20 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`font-bold text-xs ${isCurrent ? "text-[var(--accent)]" : "text-white"}`}>
+                        {tpl.name}
+                      </span>
+                      <span className="text-[9px] font-mono text-[var(--faint)] bg-white/5 px-2 py-0.5 rounded-md">
+                        {tpl.aspect ?? "16:9"} É?õ {tpl.captionStyle.fontFamily}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-[var(--muted)] leading-relaxed">{tpl.blurb}</p>
+                    <div className="mt-2 flex items-center gap-2 text-[9px] text-[var(--faint)]">
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: tpl.captionStyle.highlightFill }} />
+                      <span>Karaoke: {tpl.captionStyle.karaoke ?? "wipe"}</span>
+                      <span>É?õ</span>
+                      <span>Anim: {tpl.animations?.lineIn?.[0]?.type ?? "fade"}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: TEXT & TYPOGRAPHY */}
+        {activeTab === "text" && (
+          <>
+            <Section title="Typography & Font" icon={Type} defaultOpen={true}>
+              <div className="flex items-center justify-between">
+                <label className="lf-label">Font Family</label>
+                <button type="button" onClick={() => fontInputRef.current?.click()} className="lf-btn-ghost text-[10px] py-1 px-2.5">
+                  <Upload size={11} /> Custom Font
+                </button>
+              </div>
+              <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" hidden onChange={(e) => e.target.files?.[0] && void handleFontUpload(e.target.files[0])} />
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={GOOGLE_FONTS.includes(style.fontFamily) ? style.fontFamily : "custom"}
+                  onChange={(e) => { if (e.target.value !== "custom") patch({ fontFamily: e.target.value }); }}
+                  className="lf-select text-xs"
+                >
+                  {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+                  <option value="custom">Custom font...</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="Font name..."
+                  value={style.fontFamily}
+                  onChange={(e) => patch({ fontFamily: e.target.value })}
+                  className="lf-input text-xs"
+                />
+              </div>
+
+              <div className="flex gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => patch({ italic: !style.italic })}
+                  className={`lf-btn text-xs flex-1 !py-1.5 ${style.italic ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+                >
+                  <em>Italic</em>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => patch({ uppercase: !style.uppercase, transform: !style.uppercase ? "uppercase" : "none" })}
+                  className={`lf-btn text-xs flex-1 !py-1.5 ${style.uppercase ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+                >
+                  UPPERCASE
+                </button>
+                {(["left", "center", "right"] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => patch({ align: a })}
+                    className={`lf-btn text-xs flex-1 !py-1.5 capitalize ${style.align === a ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Text Scale & Spacing" icon={SlidersHorizontal} defaultOpen={true}>
+              <Slider label="Font Size (% of video height)" min={2.5} max={12} step={0.2} value={style.fontSizePct} onChange={(v) => patch({ fontSizePct: v })} />
+              <Slider label="Font Weight" min={200} max={900} step={100} value={style.fontWeight} onChange={(v) => patch({ fontWeight: v })} />
+              <Slider label="Line Height" min={0.9} max={2.2} step={0.05} value={style.lineHeight} onChange={(v) => patch({ lineHeight: v })} />
+              <Slider label="Letter Spacing" min={-0.05} max={0.2} step={0.01} value={style.letterSpacing ?? 0} onChange={(v) => patch({ letterSpacing: v })} />
+            </Section>
+          </>
+        )}
+
+        {/* TAB 3: ANIMATION & KARAOKE */}
+        {activeTab === "animation" && (
+          <>
+            <Section title="Karaoke Mode & Wipe" icon={Play} defaultOpen={true}>
+              <div>
+                <label className="lf-label">Karaoke Rendering Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { id: "wipe", label: "Clip Wipe", desc: "Progressive fill sweep" },
+                    { id: "word-color", label: "Word Color", desc: "Instant active tint" },
+                    { id: "outline-fill", label: "Outline to Fill", desc: "Stroke becomes filled" },
+                    { id: "none", label: "Static Text", desc: "No word highlight" },
+                  ] as const).map((km) => {
+                    const isSel = (style.karaoke ?? "wipe") === km.id;
+                    return (
+                      <button
+                        key={km.id}
+                        type="button"
+                        onClick={() => patch({ karaoke: km.id as KaraokeMode })}
+                        className={`flex flex-col text-left rounded-xl p-2.5 transition-all border text-xs ${
+                          isSel
+                            ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                            : "border-white/5 hover:border-white/15 hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <span className={`font-bold ${isSel ? "text-[var(--accent)]" : "text-white"}`}>{km.label}</span>
+                        <span className="text-[9px] text-[var(--faint)]">{km.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Slider label="Active Word Scale" min={1.0} max={1.3} step={0.02} value={style.activeScale ?? 1.06} onChange={(v) => patch({ activeScale: v })} />
+              <Slider label="Upcoming Words Opacity" min={0.2} max={1.0} step={0.05} value={style.inactiveOpacity ?? 0.75} onChange={(v) => patch({ inactiveOpacity: v })} />
+              <Slider label="Word Highlight Lead (ms)" min={-250} max={250} step={5} value={studio.project.settings.wordLeadMs ?? 0} onChange={(v) => studio.commit((d) => { d.settings.wordLeadMs = v; })} />
+              <Slider label="Global Sync Offset (ms)" min={-1500} max={1500} step={10} value={studio.project.settings.syncOffsetMs ?? 0} onChange={(v) => studio.commit((d) => { d.settings.syncOffsetMs = v; })} />
+            </Section>
+
+            <Section title="Line Entrance & Exit Transitions" icon={Compass} defaultOpen={true}>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="lf-label">In-Transition</label>
+                  <select
+                    value={selected?.animation?.in?.preset ?? "fade"}
+                    onChange={(e) => {
+                      const p = e.target.value;
+                      if (selected) {
+                        studio.commit((d) => {
+                          const c = d.captions.find((x) => x.id === selected.id);
+                          if (c) c.animation.in.preset = p as typeof c.animation.in.preset;
+                        });
+                      } else {
+                        studio.commit((d) => {
+                          for (const c of d.captions) c.animation.in.preset = p as typeof c.animation.in.preset;
+                        });
+                      }
+                    }}
+                    className="lf-select w-full text-xs"
+                  >
+                    {["fade", "slide", "scale", "pop", "bounce", "blur", "wave", "typewriter", "cascade", "wipe", "spring", "none"].map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="lf-label">Out-Transition</label>
+                  <select
+                    value={selected?.animation?.out?.preset ?? "fade"}
+                    onChange={(e) => {
+                      const p = e.target.value;
+                      if (selected) {
+                        studio.commit((d) => {
+                          const c = d.captions.find((x) => x.id === selected.id);
+                          if (c) c.animation.out.preset = p as typeof c.animation.out.preset;
+                        });
+                      }
+                    }}
+                    className="lf-select w-full text-xs"
+                  >
+                    {["fade", "slide", "scale", "pop", "bounce", "blur", "wipe", "spring", "none"].map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </Section>
+          </>
+        )}
+
+        {/* TAB 4: POSITION & SAFE AREA */}
+        {activeTab === "position" && (
+          <Section title="Layout & Safe Zone" icon={Compass} defaultOpen={true}>
+            <Slider label="Vertical Position (Y %)" min={10} max={90} step={1} value={style.yPercent} onChange={(v) => patch({ yPercent: v })} />
+            <Slider label="Horizontal Position (X %)" min={10} max={90} step={1} value={style.xPercent} onChange={(v) => patch({ xPercent: v })} />
+            <Slider label="Rotation (Degrees)" min={-45} max={45} step={1} value={style.rotation ?? 0} onChange={(v) => patch({ rotation: v })} />
+            <div className="rounded-lg bg-[#06080e] p-3 border border-white/5 text-[11px] text-[var(--muted)] space-y-1">
+              <span className="font-bold text-white block">9:16 Vertical Safe Area</span>
+              <p>For TikTok and Reels, text is automatically constrained between 16% and 80% to avoid bottom UI elements.</p>
+            </div>
+          </Section>
+        )}
+
+        {/* TAB 5: EFFECTS & STYLE */}
+        {activeTab === "effects" && (
+          <>
+            <Section title="Karaoke Colors" icon={Palette} defaultOpen={true}>
+              <ColorField label="Active / Highlight Word" value={style.activeFill ?? style.highlightFill ?? "#F5C15A"} onChange={(v) => patch({ activeFill: v, highlightFill: v })} recent={recentColors} />
+              <ColorField label="Future / Upcoming Words" value={style.futureFill ?? style.fill ?? "#F4F1EA"} onChange={(v) => patch({ futureFill: v, fill: v })} recent={recentColors} />
+              <ColorField label="Past / Sung Words" value={style.pastFill ?? "#C8C2B4"} onChange={(v) => patch({ pastFill: v })} recent={recentColors} />
+            </Section>
+
+            <Section title="Background Pill Backing" icon={Layers} defaultOpen={true}>
+              <div className="flex items-center justify-between pb-1">
+                <div>
+                  <span className="text-xs font-bold text-white">Backdrop Pill Box</span>
+                  <span className="block text-[10px] text-[var(--faint)]">TikTok-style high contrast backing</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    patch({
+                      backgroundPill: {
+                        enabled: !style.backgroundPill?.enabled,
+                        color: style.backgroundPill?.color ?? "#000000",
+                        radius: style.backgroundPill?.radius ?? 14,
+                        padX: style.backgroundPill?.padX ?? 24,
+                        padY: style.backgroundPill?.padY ?? 14,
+                        opacity: style.backgroundPill?.opacity ?? 0.6,
+                      },
+                    })
+                  }
+                  className={`lf-badge ${style.backgroundPill?.enabled ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-white/10 text-[var(--muted)]"}`}
+                >
+                  {style.backgroundPill?.enabled ? "ON" : "OFF"}
+                </button>
+              </div>
+
+              {style.backgroundPill?.enabled && (
+                <div className="space-y-3 pt-2">
+                  <ColorField
+                    label="Pill Color"
+                    value={style.backgroundPill.color ?? "#000000"}
+                    onChange={(c) => patch({ backgroundPill: { ...style.backgroundPill!, color: c } })}
+                    recent={recentColors}
+                  />
+                  <Slider label="Pill Opacity" min={0.1} max={1} step={0.05} value={style.backgroundPill.opacity ?? 0.6} onChange={(v) => patch({ backgroundPill: { ...style.backgroundPill!, opacity: v } })} />
+                  <Slider label="Corner Radius" min={0} max={30} step={2} value={style.backgroundPill.radius ?? 14} onChange={(v) => patch({ backgroundPill: { ...style.backgroundPill!, radius: v } })} />
+                  <Slider label="Horizontal Padding" min={8} max={48} step={2} value={style.backgroundPill.padX ?? 24} onChange={(v) => patch({ backgroundPill: { ...style.backgroundPill!, padX: v } })} />
+                </div>
+              )}
+            </Section>
+
+            <Section title="Glow, Outline & Shadow" icon={Sun} defaultOpen={true}>
+              <div className="grid grid-cols-2 gap-2">
+                <ColorField label="Outline Color" value={style.outlineColor ?? style.strokeColor ?? "#000000"} onChange={(v) => patch({ outlineColor: v, strokeColor: v })} recent={recentColors} />
+                <ColorField label="Glow Color" value={style.glow?.color ?? style.highlightFill ?? "#F5C15A"} onChange={(v) => patch({ glow: { color: v, blur: style.glow?.blur ?? 16, opacity: 0.85 } })} recent={recentColors} />
+              </div>
+              <Slider label="Outline Width" min={0} max={16} step={0.5} value={style.outlineWidth ?? style.strokeWidth ?? 0} onChange={(v) => patch({ outlineWidth: v, strokeWidth: v })} />
+              <Slider label="Ambient Glow Blur" min={0} max={60} step={2} value={style.glow?.blur ?? 0} onChange={(v) => patch({ glow: { color: style.glow?.color ?? style.highlightFill ?? "#F5C15A", blur: v, opacity: v > 0 ? 0.85 : 0 } })} />
+              <Slider label="Drop Shadow Distance" min={0} max={30} step={1} value={style.shadow?.y ?? 4} onChange={(v) => patch({ shadow: { color: "#000000", x: 0, y: v, blur: 16, opacity: 0.6 } })} />
+            </Section>
+          </>
+        )}
+
+        {/* TAB 6: BACKDROP */}
+        {activeTab === "background" && (
+          <Section title="Video Background Backdrop" icon={ImageIcon} defaultOpen={true}>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: "album-blur", label: "Album Blur", desc: "Dynamic blur & Ken Burns" },
+                { id: "gradient", label: "Gradient", desc: "Dual color mesh" },
+                { id: "image", label: "Custom Image", desc: "Uploaded photo / art" },
+                { id: "solid", label: "Solid Dark", desc: "Minimalist solid fill" },
+              ] as const).map((b) => {
+                const isSel = studio.project.media.background.type === b.id;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => studio.commit((d) => { d.media.background.type = b.id as typeof d.media.background.type; })}
+                    className={`flex flex-col text-left rounded-xl p-2.5 transition-all border text-xs ${
+                      isSel
+                        ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                        : "border-white/5 hover:border-white/15 hover:bg-white/[0.02]"
+                    }`}
+                  >
+                    <span className={`font-bold ${isSel ? "text-[var(--accent)]" : "text-white"}`}>{b.label}</span>
+                    <span className="text-[9px] text-[var(--faint)]">{b.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(studio.project.media.background.type === "image" || studio.project.media.background.type === "album-blur") && (
+              <div className="pt-1 space-y-2">
+                <button type="button" onClick={() => bgImageInputRef.current?.click()} className="lf-btn-ghost w-full text-xs py-2">
+                  <Upload size={14} /> Upload Custom Background Photo
+                </button>
+                <input ref={bgImageInputRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && void handleBgImageUpload(e.target.files[0])} />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <ColorField label="Backdrop Color A" value={studio.project.media.background.color ?? "#0B0D12"} onChange={(c) => studio.commit((d) => { d.media.background.color = c; })} recent={recentColors} />
+              <ColorField label="Backdrop Color B" value={studio.project.media.background.colorB ?? "#1B2232"} onChange={(c) => studio.commit((d) => { d.media.background.colorB = c; })} recent={recentColors} />
+            </div>
+
+            <Slider label="Background Blur (px)" min={0} max={50} step={2} value={studio.project.media.background.blurPx} onChange={(v) => studio.commit((d) => { d.media.background.blurPx = v; })} />
+            <Slider label="Dim / Vignette Overlay" min={0} max={0.9} step={0.05} value={studio.project.media.background.dim} onChange={(v) => studio.commit((d) => { d.media.background.dim = v; })} />
+          </Section>
+        )}
+
+        {/* TAB 7: VISUALIZER */}
+        {activeTab === "visualizer" && (
+          <Section title="Audio Reactive Spectrum" icon={Activity} defaultOpen={true}>
+            <div className="flex items-center justify-between pb-1">
+              <div>
+                <span className="text-xs font-bold text-white">Live Spectrum Visualizer</span>
+                <span className="block text-[10px] text-[var(--faint)]">Pulses to the music frequencies</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => studio.commit((d) => { d.media.background.visualizer = !d.media.background.visualizer; })}
+                className={`lf-badge ${studio.project.media?.background?.visualizer ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-white/10 text-[var(--muted)]"}`}
+              >
+                {studio.project.media?.background?.visualizer ? "ACTIVE" : "OFF"}
+              </button>
+            </div>
+
+            {studio.project.media?.background?.visualizer && (
+              <div className="space-y-3 pt-2">
+                <div className="grid grid-cols-2 gap-2">
+                  {([{ id: "bars", label: "Bars" }, { id: "wave", label: "Waveform" }, { id: "circle", label: "Radial" }, { id: "mirror", label: "Mirror Bars" }] as const).map((v) => {
+                    const isSel = (studio.project.media?.background?.visualizerConfig?.type ?? "bars") === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => studio.commit((d) => {
+                          if (!d.media.background.visualizerConfig) {
+                            d.media.background.visualizerConfig = { type: "bars", colorA: "#F5C15A", colorB: "#67F0FF", sensitivity: 1, position: "bottom", barCount: 48, opacity: 0.35 };
+                          }
+                          d.media.background.visualizerConfig.type = v.id as VisualizerType;
+                        })}
+                        className={`lf-btn text-xs ${isSel ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-white/5 !text-[var(--muted)]"}`}
+                      >
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <ColorField label="Bass Color A" value={studio.project.media?.background?.visualizerConfig?.colorA ?? "#F5C15A"} onChange={(c) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.colorA = c; })} recent={recentColors} />
+                  <ColorField label="Treble Color B" value={studio.project.media?.background?.visualizerConfig?.colorB ?? "#67F0FF"} onChange={(c) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.colorB = c; })} recent={recentColors} />
+                </div>
+
+                <Slider label="Audio Sensitivity" min={0.2} max={3} step={0.1} value={studio.project.media?.background?.visualizerConfig?.sensitivity ?? 1} onChange={(v) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.sensitivity = v; })} />
+                <Slider label="Spectrum Bars Count" min={16} max={96} step={4} value={studio.project.media?.background?.visualizerConfig?.barCount ?? 48} onChange={(v) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.barCount = v; })} />
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* TAB 8: ATMOSPHERIC OVERLAYS */}
+        {activeTab === "overlays" && (
+          <Section title="Atmosphere & FX Overlays" icon={Layers} defaultOpen={true}>
+            <div className="flex items-center gap-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-300">
+              <Flame size={14} className="shrink-0" />
+              <span>Overlays react dynamically with live audio beats.</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {OVERLAY_OPTIONS.map((opt) => {
+                const active = overlay.type === opt.type;
+                return (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => { if (opt.type === "lottie") lottieInputRef.current?.click(); else patchOverlay({ type: opt.type }); }}
+                    className={`flex flex-col text-left rounded-xl p-2.5 transition-all border text-xs ${
+                      active ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_12px_rgba(239,68,68,0.2)]" : "border-white/5 hover:border-white/15 hover:bg-white/[0.02]"
+                    }`}
+                  >
+                    <span className={`font-bold ${active ? "text-[var(--accent)]" : "text-white"}`}>{opt.label}</span>
+                    <span className="mt-0.5 text-[9px] text-[var(--faint)]">{opt.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <input ref={lottieInputRef} type="file" accept=".json" hidden />
+
+            {overlay.type !== "none" && (
+              <div className="space-y-3 pt-2">
+                <Slider label="Overlay Opacity" min={0.1} max={1} step={0.05} value={overlay.opacity} onChange={(v) => patchOverlay({ opacity: v })} />
+                <Slider label="Animation Speed" min={0.2} max={3} step={0.1} value={overlay.speed} onChange={(v) => patchOverlay({ speed: v })} />
+                <Slider label="Particle Density" min={0.5} max={2.5} step={0.1} value={overlay.scale} onChange={(v) => patchOverlay({ scale: v })} />
+              </div>
+            )}
+          </Section>
+        )}
+      </div>
+    </div>
+  );
+}
+===== src/lib/providers/registry.ts =====
+Get-Content : Cannot find path 'A:\OneDrive - SRc\Antigravity\Projects\ai-lyric
+-video-generator\src\lib\providers\registry.ts' because it does not exist.
+At line:1 char:426
++ ... ; foreach($f in $files){ '===== '+$f+' ====='; Get-Content $f }; '=== ...
++                                                    ~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (A:\OneDrive - S...ers\registry. 
+   ts:String) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetCo 
+   ntentCommand
+ 
+===== src/lib/providers/google.ts =====
+Get-Content : Cannot find path 'A:\OneDrive - 
+SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\providers\google.ts' 
+because it does not exist.
+At line:1 char:426
++ ... ; foreach($f in $files){ '===== '+$f+' ====='; Get-Content $f }; '=== ...
++                                                    ~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (A:\OneDrive - S...iders\google. 
+   ts:String) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetCo 
+   ntentCommand
+ 
+===== src/lib/providers/index.ts =====
+Get-Content : Cannot find path 'A:\OneDrive - 
+SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\providers\index.ts' 
+because it does not exist.
+At line:1 char:426
++ ... ; foreach($f in $files){ '===== '+$f+' ====='; Get-Content $f }; '=== ...
++                                                    ~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (A:\OneDrive - S...viders\index. 
+   ts:String) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetCo 
+   ntentCommand
+ 
+===== src/app/api/providers/route.ts =====
+Get-Content : Cannot find path 'A:\OneDrive - SRc\Antigravity\Projects\ai-lyric
+-video-generator\src\app\api\providers\route.ts' because it does not exist.
+At line:1 char:426
++ ... ; foreach($f in $files){ '===== '+$f+' ====='; Get-Content $f }; '=== ...
++                                                    ~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (A:\OneDrive - S...viders\route. 
+   ts:String) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetCo 
+   ntentCommand
+ 
+===== src/render-engine/custom-animation.ts =====
+import type { z } from "zod";
+import { CustomAnimationSchema } from "@/schema";
+
+export type CustomAnimation = z.infer<typeof CustomAnimationSchema>;
+export interface AnimationTransform { opacity:number; translateX:number; translateY:number; scale:number; rotation:number; blur:number }
+const DEFAULTS: AnimationTransform={opacity:1,translateX:0,translateY:0,scale:1,rotation:0,blur:0};
+const clamp=(n:number,a=0,b=1)=>Math.min(b,Math.max(a,n));
+const ease=(t:number,name:CustomAnimation["easing"])=>name==="ease-in"?t*t:name==="ease-out"?1-(1-t)*(1-t):name==="ease-in-out"?(t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2):t;
+export function normalizeCustomAnimation(value:unknown):CustomAnimation|null { const parsed=CustomAnimationSchema.safeParse(value); if(!parsed.success)return null; return {...parsed.data,keyframes:[...parsed.data.keyframes].sort((a,b)=>a.at-b.at)}; }
+export function evaluateCustomAnimation(spec:CustomAnimation,timeSec:number,originSec=0):AnimationTransform {
+ const frames=[...spec.keyframes].sort((a,b)=>a.at-b.at); const raw=(timeSec-originSec-spec.offsetSec)/spec.durationSec; const p=clamp(raw); let hi=frames.findIndex(f=>f.at>=p); if(hi<0)hi=frames.length-1; const lo=Math.max(0,hi-1); const a=frames[lo],b=frames[hi]; const span=Math.max(1e-9,b.at-a.at); const t=lo===hi?0:ease(clamp((p-a.at)/span),spec.easing);
+ const value=(k:keyof AnimationTransform)=>{const av=a[k]??DEFAULTS[k],bv=b[k]??av;return av+(bv-av)*t};
+ return {opacity:clamp(value("opacity")),translateX:value("translateX"),translateY:value("translateY"),scale:Math.max(0,value("scale")),rotation:value("rotation"),blur:Math.max(0,value("blur"))};
+}
+export function applyAnimationTransform(ctx:CanvasRenderingContext2D,t:AnimationTransform){ctx.globalAlpha*=t.opacity;ctx.translate(t.translateX,t.translateY);ctx.rotate(t.rotation*Math.PI/180);ctx.scale(t.scale,t.scale);ctx.filter=t.blur>0?`blur(${t.blur}px)`:"none";}
+===== src/render-engine/draw-frame.ts =====
+import type { Caption, CaptionStyle, Project, Word } from "@/schema";
+import { mixHex, toRgba } from "@/lib/color";
+import { applyEasing, hashString, mulberry32 } from "./easing";
+import { fontString, type FrameContext, type FrameGradient, type ResolvedAssets } from "./context";
+import { renderProceduralOverlay } from "./overlays";
+import { evaluateCustomAnimation, normalizeCustomAnimation } from "./custom-animation";
+import { resolveTemplateStyle } from "./templates";
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+function resolveStyle(project: Project, caption?: Caption): CaptionStyle {
+  return resolveTemplateStyle(project, caption);
+}
+
+function applyTransform(text: string, transform?: CaptionStyle["transform"]): string {
+  if (transform === "uppercase") return text.toUpperCase();
+  if (transform === "lowercase") return text.toLowerCase();
+  if (transform === "capitalize") {
+    return text.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return text;
+}
+
+function wrapWords(words: string[], maxChars: number, maxLines: number): string[][] {
+  const lines: string[][] = [[]];
+  let count = 0;
+  for (const word of words) {
+    const next = count + word.length + (count > 0 ? 1 : 0);
+    if (count > 0 && next > maxChars) {
+      if (lines.length >= maxLines) {
+        const last = lines[lines.length - 1]!;
+        last[last.length - 1] = `${last[last.length - 1] ?? ""}É?›`;
+        break;
+      }
+      lines.push([word]);
+      count = word.length;
+    } else {
+      lines[lines.length - 1]!.push(word);
+      count = next;
+    }
+  }
+  return lines;
+}
+
+function captionOpacity(
+  caption: Caption,
+  timeSec: number,
+): { alpha: number; tx: number; ty: number; scale: number; blur: number; waveOffset: number } {
+  const inn = caption.animation?.in ?? {
+    preset: "fade",
+    durationSec: 0.25,
+    delaySec: 0,
+    easing: { type: "named", name: "ease-out-cubic" },
+  };
+  const out = caption.animation?.out ?? {
+    preset: "fade",
+    durationSec: 0.25,
+    delaySec: 0,
+    easing: { type: "named", name: "ease-out-cubic" },
+  };
+  const tIn = inn.durationSec <= 0 ? 1 : applyEasing(inn.easing, (timeSec - caption.startSec - inn.delaySec) / inn.durationSec);
+  const tOut = out.durationSec <= 0 ? 1 : applyEasing(out.easing, (caption.endSec - timeSec - out.delaySec) / out.durationSec);
+  const enter = Math.max(0, Math.min(1, tIn));
+  const leave = Math.max(0, Math.min(1, tOut));
+  const alpha = enter * leave;
+  const dir = inn.direction ?? "up";
+  const dist = inn.distance ?? 24;
+  const slideIn = (1 - enter) * dist;
+  const slideOut = (1 - leave) * dist;
+  const ty = dir === "up" ? slideIn - slideOut : dir === "down" ? -slideIn + slideOut : 0;
+  const tx = dir === "left" ? slideIn - slideOut : dir === "right" ? -slideIn + slideOut : 0;
+
+  let scaleIn = 1;
+  if (inn.preset === "scale") scaleIn = lerp(0.86, 1, enter);
+  else if (inn.preset === "pop") scaleIn = enter < 1 ? lerp(0.5, 1.08, enter) : 1;
+  else if (inn.preset === "bounce" || inn.preset === "spring") {
+    scaleIn = enter < 1 ? 0.7 + 0.3 * Math.sin(enter * Math.PI * 1.5) : 1;
+  }
+
+  let scaleOut = 1;
+  if (out.preset === "scale" || out.preset === "pop") scaleOut = lerp(0.85, 1, leave);
+  else if (out.preset === "bounce" || out.preset === "spring") {
+    scaleOut = leave < 1 ? 0.7 + 0.3 * Math.sin(leave * Math.PI) : 1;
+  }
+
+  const blur = (inn.preset === "blur" ? (1 - enter) * 10 : 0) + (out.preset === "blur" ? (1 - leave) * 10 : 0);
+  const waveOffset = inn.preset === "wave" ? Math.sin((timeSec - caption.startSec) * 3) * 6 : 0;
+  return { alpha, tx, ty, scale: scaleIn * scaleOut, blur, waveOffset };
+}
+
+function wordState(word: Word, timeSec: number): "past" | "active" | "future" {
+  if (timeSec < word.startSec) return "future";
+  if (timeSec >= word.endSec) return "past";
+  return "active";
+}
+
+function paintVisualizer(
+  ctx: FrameContext,
+  width: number,
+  height: number,
+  config: import("@/schema").VisualizerConfig | undefined,
+  spectrum: ArrayLike<number>,
+  timeSec: number,
+): void {
+  const cfg = config ?? {
+    type: "bars",
+    colorA: "#F5C15A",
+    colorB: "#67F0FF",
+    sensitivity: 1,
+    position: "bottom",
+    barCount: 48,
+    opacity: 0.35,
+  };
+
+  const alpha = Math.max(0, Math.min(1, cfg.opacity ?? 0.35));
+  if (alpha <= 0.01) return;
+
+  const sens = Math.max(0.1, Math.min(3, cfg.sensitivity ?? 1));
+  const count = Math.min(Math.max(8, cfg.barCount ?? 48), spectrum.length);
+  const colorA = cfg.colorA ?? "#F5C15A";
+  const colorB = cfg.colorB ?? "#67F0FF";
+
+  const defaultYRatio = cfg.position === "middle" ? 0.5 : cfg.position === "behind-text" ? 0.72 : 0.92;
+  const posY = (cfg.yPercent !== undefined ? cfg.yPercent / 100 : defaultYRatio) * height;
+  const posX = (cfg.xPercent !== undefined ? cfg.xPercent / 100 : 0.5) * width;
+  const vizW = (cfg.widthPercent !== undefined ? cfg.widthPercent / 100 : 0.74) * width;
+  const vizH = (cfg.heightPercent !== undefined ? cfg.heightPercent / 100 : 0.22) * height;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  if (cfg.type === "wave") {
+    ctx.beginPath();
+    ctx.strokeStyle = colorA;
+    ctx.lineWidth = Math.max(2, height * 0.005);
+    if ("lineCap" in ctx) ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    const step = vizW / Math.max(1, count - 1);
+    const startX = posX - vizW / 2;
+    for (let i = 0; i < count; i++) {
+      const v = (spectrum[i] ?? 0) * sens;
+      const wave = Math.sin(timeSec * 4 + (i / count) * Math.PI * 4) * vizH * 0.15;
+      const y = posY - v * vizH * 0.85 + wave;
+      const x = startX + i * step;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = colorB;
+    ctx.lineWidth = Math.max(1, height * 0.003);
+    for (let i = 0; i < count; i++) {
+      const v = (spectrum[count - 1 - i] ?? 0) * sens;
+      const wave = Math.cos(timeSec * 3 + (i / count) * Math.PI * 4) * vizH * 0.12;
+      const y = posY + v * vizH * 0.55 + wave;
+      const x = startX + i * step;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  } else if (cfg.type === "circle") {
+    const cx = posX;
+    const cy = posY;
+    const baseRadius = Math.min(vizW, vizH) * 0.5;
+    const angleStep = (Math.PI * 2) / count;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseRadius * 0.85, 0, Math.PI * 2);
+    ctx.strokeStyle = toRgba(colorB, 0.4);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    for (let i = 0; i < count; i++) {
+      const v = (spectrum[i] ?? 0) * sens;
+      const ang = i * angleStep;
+      const len = Math.max(4, v * vizH * 0.8);
+      const x1 = cx + Math.cos(ang) * baseRadius;
+      const y1 = cy + Math.sin(ang) * baseRadius;
+      const x2 = cx + Math.cos(ang) * (baseRadius + len);
+      const y2 = cy + Math.sin(ang) * (baseRadius + len);
+
+      ctx.beginPath();
+      ctx.strokeStyle = i % 2 === 0 ? colorA : colorB;
+      ctx.lineWidth = Math.max(2, width * 0.003);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+  } else if (cfg.type === "mirror") {
+    const half = Math.floor(count / 2);
+    const gap = 3;
+    const bw = vizW / count;
+    const cx = posX;
+
+    for (let i = 0; i < half; i++) {
+      const v = (spectrum[i] ?? 0) * sens;
+      const h = Math.max(4, v * vizH);
+      const col = i % 2 === 0 ? colorA : colorB;
+      ctx.fillStyle = col;
+
+      const rx = cx + i * bw + gap / 2;
+      ctx.fillRect(rx, posY - h, bw - gap, h);
+
+      const lx = cx - (i + 1) * bw + gap / 2;
+      ctx.fillRect(lx, posY - h, bw - gap, h);
+    }
+  } else {
+    const gap = Math.max(2, Math.round(width * 0.003));
+    const bw = vizW / count;
+    const startX = posX - vizW / 2;
+
+    for (let i = 0; i < count; i++) {
+      const v = (spectrum[i] ?? 0) * sens;
+      const h = Math.max(4, v * vizH);
+      const x = startX + i * bw;
+      ctx.fillStyle = i % 2 === 0 ? colorA : colorB;
+      ctx.fillRect(x, posY - h, Math.max(1, bw - gap), h);
+    }
+  }
+
+  ctx.restore();
+}
+
+function paintBackground(ctx: FrameContext, project: Project, timeSec: number, assets: ResolvedAssets): void {
+  const { width, height } = ctx.canvas;
+  const bg = project.media.background;
+  const colA = bg.color || "#120a21";
+  const colB = bg.colorB || "#2d124d";
+
+  // Base fill
+  ctx.fillStyle = colA;
+  ctx.fillRect(0, 0, width, height);
+
+  const ang = ((bg.angleDeg ?? 160) * Math.PI) / 180;
+  const gx = Math.cos(ang) * width;
+  const gy = Math.sin(ang) * height;
+  const g = ctx.createLinearGradient(width / 2 - gx / 2, height / 2 - gy / 2, width / 2 + gx / 2, height / 2 + gy / 2);
+  g.addColorStop(0, colA);
+  g.addColorStop(0.5, colB);
+  g.addColorStop(1, bg.type === "gradient" ? (bg.colorB ?? "#080410") : "#080410");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, width, height);
+
+  const img = assets.backgroundImage ?? assets.albumArt;
+  if (img && (bg.type === "image" || bg.type === "album-blur")) {
+    const zoomBase = bg.kenBurns ? bg.kenBurnsZoom || 1.1 : 1;
+    const seed = hashString(project.id);
+    const rnd = mulberry32(seed);
+    const driftX = rnd() * 0.08 - 0.04;
+    const driftY = rnd() * 0.08 - 0.04;
+    const duration = Math.max(1, project.meta.durationSec);
+    const k = bg.kenBurns ? timeSec / duration : 0;
+    const zoom = lerp(1, zoomBase, k);
+    const iw = img.width || width;
+    const ih = img.height || height;
+    const scale = Math.max(width / iw, height / ih) * zoom;
+    const dw = iw * scale;
+    const dh = ih * scale;
+    const dx = (width - dw) / 2 + driftX * width * k;
+    const dy = (height - dh) / 2 + driftY * height * k;
+    ctx.save();
+    if (bg.type === "album-blur" && bg.blurPx > 0) {
+      ctx.filter = `blur(${bg.blurPx}px)`;
+    }
+    ctx.drawImage(img, dx, dy, dw, dh);
+    ctx.filter = "none";
+    ctx.restore();
+  } else if (!img && (bg.type === "album-blur" || bg.type === "image")) {
+    const pulse = 0.5 + 0.5 * Math.sin(timeSec * 0.8);
+    const rad = ctx.createRadialGradient(width * 0.65, height * 0.45, 20, width * 0.65, height * 0.45, width * 0.6);
+    rad.addColorStop(0, toRgba("#f5c15a", 0.45 + 0.15 * pulse));
+    rad.addColorStop(0.4, toRgba("#e06b3a", 0.25));
+    rad.addColorStop(1, "transparent");
+    ctx.fillStyle = rad;
+    ctx.fillRect(0, 0, width, height);
+
+    const rad2 = ctx.createRadialGradient(width * 0.25, height * 0.75, 10, width * 0.25, height * 0.75, width * 0.5);
+    rad2.addColorStop(0, toRgba("#8b5cf6", 0.35));
+    rad2.addColorStop(1, "transparent");
+    ctx.fillStyle = rad2;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  if (bg.dim > 0) {
+    ctx.fillStyle = toRgba("#000000", Math.min(0.65, bg.dim));
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  if (bg.visualizer && assets.spectrum && assets.spectrum.length > 0) {
+    paintVisualizer(ctx, width, height, bg.visualizerConfig, assets.spectrum, timeSec);
+  }
+}
+
+function paintIntro(ctx: FrameContext, project: Project, timeSec: number): void {
+  if (timeSec > 2.6) return;
+  const title = project.meta.title?.trim();
+  const artist = project.meta.artist?.trim();
+  const hasArtist = Boolean(artist && !artist.toLowerCase().includes("unknown") && artist.length > 0);
+  const hasTitle = Boolean(title && !title.toLowerCase().includes("untitled") && title.length > 0);
+  if (!hasTitle && !hasArtist) return;
+
+  const { width, height } = ctx.canvas;
+  const t = Math.max(0, Math.min(1, timeSec / 0.5));
+  const fadeOut = timeSec > 1.8 ? 1 - (timeSec - 1.8) / 0.8 : 1;
+  const alpha = t * fadeOut;
+  if (alpha <= 0) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "#F7F4EE";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  if (hasTitle) {
+    ctx.font = fontString("Fraunces", 500, true, height * 0.07);
+    ctx.fillText(title, width / 2, hasArtist ? height * 0.44 : height * 0.49);
+  }
+  if (hasArtist) {
+    ctx.font = fontString("Outfit", 500, false, height * 0.028);
+    ctx.fillStyle = "#F5C15A";
+    ctx.fillText(artist.toUpperCase(), width / 2, hasTitle ? height * 0.53 : height * 0.49);
+  }
+  ctx.restore();
+}
+
+function paintRoundedRect(
+  ctx: FrameContext,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+  fill: string | FrameGradient,
+): void {
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fill();
+  ctx.restore();
+}
+
+function paintCaption(
+  ctx: FrameContext,
+  project: Project,
+  caption: Caption,
+  timeSec: number,
+): void {
+  if (timeSec < caption.startSec - 0.05 || timeSec > caption.endSec + 0.05) return;
+
+  const isInstrumental = Boolean(
+    caption.instrumental ||
+      !caption.text ||
+      caption.text.trim() === "ÉT¶" ||
+      caption.text.toLowerCase().includes("instrumental"),
+  );
+
+  const gapDuration = caption.endSec - caption.startSec;
+  const displayMode = project.settings?.instrumentalDisplay ?? "auto";
+
+  if (isInstrumental) {
+    if (displayMode === "hidden") return;
+    if (displayMode === "auto" && gapDuration <= 3.0) return;
+  }
+
+  const style = resolveStyle(project, caption);
+  const { width, height } = ctx.canvas;
+  const motion = captionOpacity(caption, timeSec);
+  const custom = normalizeCustomAnimation(caption.animation?.in.custom);
+  const lineCustom = custom?.enabled && custom.target === "line"
+    ? evaluateCustomAnimation(custom, timeSec, caption.startSec)
+    : null;
+  if (motion.alpha * (lineCustom?.opacity ?? 1) <= 0.01) return;
+
+  const fontPx = (style.fontSizePct / 100) * height * style.scale;
+  const rawWords = (isInstrumental ? ["ÉT¶", "Instrumental", "ÉT¶"] : caption.text.split(/\s+/).filter(Boolean)).map((w) =>
+    applyTransform(w, style.transform ?? (style.uppercase ? "uppercase" : undefined)),
+  );
+  const lines = wrapWords(rawWords, style.maxCharsPerLine, style.maxLines);
+  ctx.font = fontString(style.fontFamily, style.fontWeight, style.italic, fontPx);
+
+  const lineMetrics = lines.map((line) => {
+    const text = line.join(" ");
+    return {
+      line,
+      text,
+      width: ctx.measureText(text).width + style.letterSpacing * fontPx * Math.max(0, text.length - 1),
+    };
+  });
+  const blockW = Math.max(...lineMetrics.map((l) => l.width), 10);
+  const blockH = lineMetrics.length * fontPx * style.lineHeight;
+
+  // Safe area handling for 9:16 vertical videos
+  const isVertical = height > width || project.meta.aspectRatio === "9:16";
+  let targetYPercent = style.yPercent;
+  if (isVertical) {
+    targetYPercent = Math.max(16, Math.min(80, targetYPercent));
+  }
+
+  const px = (style.xPercent / 100) * width;
+  const py = (targetYPercent / 100) * height + motion.waveOffset;
+
+  ctx.save();
+  ctx.globalAlpha = motion.alpha * (lineCustom?.opacity ?? 1);
+  ctx.translate(px + motion.tx + (lineCustom?.translateX ?? 0), py + motion.ty + (lineCustom?.translateY ?? 0));
+  ctx.rotate(((style.rotation + (lineCustom?.rotation ?? 0)) * Math.PI) / 180);
+  const lineScale = motion.scale * (lineCustom?.scale ?? 1);
+  ctx.scale(lineScale, lineScale);
+
+  // Background pill / box rendering
+  if (style.backgroundPill?.enabled) {
+    paintRoundedRect(
+      ctx,
+      -blockW / 2 - (style.backgroundPill.padX ?? 24),
+      -blockH / 2 - (style.backgroundPill.padY ?? 14),
+      blockW + (style.backgroundPill.padX ?? 24) * 2,
+      blockH + (style.backgroundPill.padY ?? 14) * 2,
+      style.backgroundPill.radius ?? 14,
+      toRgba(style.backgroundPill.color ?? "#000000", style.backgroundPill.opacity ?? 0.5),
+    );
+  } else if (style.box?.enabled) {
+    paintRoundedRect(
+      ctx,
+      -blockW / 2 - (style.box.paddingX ?? 28),
+      -blockH / 2 - (style.box.paddingY ?? 16),
+      blockW + (style.box.paddingX ?? 28) * 2,
+      blockH + (style.box.paddingY ?? 16) * 2,
+      style.box.radius ?? 12,
+      toRgba(style.box.fill ?? "#000000", style.box.opacity ?? 0.35),
+    );
+  }
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+
+  let wordCursor = 0;
+  const wordLead = (project.settings?.wordLeadMs ?? 0) / 1000;
+  const rawSource =
+    caption.words && caption.words.length > 0
+      ? caption.words
+      : rawWords.map((text, i) => {
+          const span = (caption.endSec - caption.startSec) / Math.max(1, rawWords.length);
+          return {
+            text,
+            startSec: caption.startSec + i * span,
+            endSec: caption.startSec + (i + 1) * span,
+            confidence: 1,
+          };
+        });
+
+  const sourceWords = wordLead
+    ? rawSource.map((w) => ({
+        ...w,
+        startSec: w.startSec + wordLead,
+        endSec: w.endSec + wordLead,
+      }))
+    : rawSource;
+
+  const karaokeMode = style.karaoke ?? (caption.animation?.highlight?.style === "box" ? "word-color" : "wipe");
+  const karaokeEnabled = (project.settings?.karaoke ?? true) && karaokeMode !== "none";
+
+  const activeFill = style.activeFill ?? style.highlightFill ?? "#F5C15A";
+  const pastFill = style.pastFill ?? "#C8C2B4";
+  const futureFill = style.futureFill ?? style.fill ?? "#F4F1EA";
+  const inactiveOpacity = style.inactiveOpacity ?? 0.75;
+  const activeScale = style.activeScale ?? 1.05;
+
+  lineMetrics.forEach((lm, li) => {
+    const y = -blockH / 2 + (li + 0.5) * fontPx * (style.lineHeight ?? 1.2);
+    let x = -lm.width / 2;
+    if (style.align === "left") x = -blockW / 2;
+    if (style.align === "right") x = blockW / 2 - lm.width;
+
+    for (const token of lm.line) {
+      const word = sourceWords[Math.min(wordCursor, sourceWords.length - 1)];
+      wordCursor += 1;
+      const state = word ? wordState(word, timeSec) : "future";
+      const localT = word ? Math.max(0, Math.min(1, (timeSec - word.startSec) / Math.max(0.04, word.endSec - word.startSec))) : 0;
+      const tw = ctx.measureText(token).width;
+
+      let baseFill = futureFill;
+      let wordAlpha = 1;
+
+      if (!karaokeEnabled) {
+        baseFill = style.fill ?? "#F4F1EA";
+      } else {
+        if (state === "past") {
+          baseFill = pastFill;
+        } else if (state === "active") {
+          if (karaokeMode === "word-color") {
+            baseFill = activeFill;
+          } else if (karaokeMode === "outline-fill") {
+            baseFill = activeFill;
+          } else {
+            baseFill = futureFill;
+          }
+        } else {
+          baseFill = futureFill;
+          wordAlpha = inactiveOpacity;
+        }
+      }
+
+      // Word bounce / scale on active
+      const scaleVal = state === "active" ? activeScale : 1;
+      const bounce = state === "active" ? 1 + 0.08 * Math.sin(localT * Math.PI) : 1;
+      const finalWordScale = scaleVal * bounce;
+
+      ctx.save();
+      const wordCustom = custom?.enabled && custom.target === "word"
+        ? evaluateCustomAnimation(custom, timeSec, timedWord?.startSec ?? caption.startSec)
+        : null;
+      ctx.globalAlpha = motion.alpha * wordAlpha * (wordCustom?.opacity ?? 1);
+      ctx.translate(x + tw / 2 + (wordCustom?.translateX ?? 0), y + (wordCustom?.translateY ?? 0));
+      ctx.rotate(((wordCustom?.rotation ?? 0) * Math.PI) / 180);
+      const customWordScale = finalWordScale * (wordCustom?.scale ?? 1);
+      ctx.scale(customWordScale, customWordScale);
+      if (wordCustom?.blur) ctx.filter = `blur(${Math.max(0, lineBlur + wordCustom.blur)}px)`;
+      ctx.font = fontString(style.fontFamily, style.fontWeight, style.italic, fontPx);
+
+      // Glow & Shadows
+      const glowBlur = style.glow?.blur ?? 0;
+      const glowOpacity = style.glow?.opacity ?? 0;
+      const shadowOpacity = style.shadow?.opacity ?? 0;
+
+      if (glowBlur > 0 && glowOpacity > 0 && state === "active") {
+        ctx.shadowColor = toRgba(style.glow?.color ?? activeFill, glowOpacity);
+        ctx.shadowBlur = glowBlur * 1.3;
+      } else if (shadowOpacity > 0 && style.shadow) {
+        ctx.shadowColor = toRgba(style.shadow.color ?? "#000000", shadowOpacity);
+        ctx.shadowBlur = style.shadow.blur ?? 18;
+        ctx.shadowOffsetX = style.shadow.x ?? 0;
+        ctx.shadowOffsetY = style.shadow.y ?? 4;
+      }
+
+      // Stroke / Outline
+      const outlineW = style.strokeWidth ?? style.outlineWidth ?? 0;
+      if (outlineW > 0) {
+        ctx.lineWidth = outlineW * 2;
+        ctx.strokeStyle = style.strokeColor ?? style.outlineColor ?? "#000000";
+        ctx.strokeText(token, -tw / 2, 0);
+      }
+
+      // Base un-wiped text
+      ctx.fillStyle = baseFill;
+      ctx.fillText(token, -tw / 2, 0);
+
+      // Karaoke Wipe Clip Layer
+      if (karaokeEnabled && karaokeMode === "wipe" && state === "active") {
+        ctx.save();
+        ctx.beginPath();
+        // Clip rectangle advancing from left to right across the word
+        ctx.rect(-tw / 2 - 2, -fontPx * 0.8, (tw + 4) * localT, fontPx * 1.6);
+        ctx.clip();
+        ctx.fillStyle = activeFill;
+        if (outlineW > 0) {
+          ctx.lineWidth = outlineW * 2;
+          ctx.strokeStyle = style.strokeColor ?? style.outlineColor ?? "#000000";
+          ctx.strokeText(token, -tw / 2, 0);
+        }
+        ctx.fillText(token, -tw / 2, 0);
+        ctx.restore();
+      }
+
+      ctx.restore();
+      x += tw + fontPx * 0.28 + (style.wordSpacing ?? 0) + (style.letterSpacing ?? 0) * fontPx;
+    }
+  });
+
+  ctx.restore();
+}
+
+export function drawFrame(
+  ctx: FrameContext,
+  project: Project,
+  timeSecRaw: number,
+  assets: ResolvedAssets,
+): void {
+  const timeSec = timeSecRaw + (project.settings?.syncOffsetMs ?? 0) / 1000;
+  const { width, height } = ctx.canvas;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.filter = "none";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.shadowColor = "transparent";
+  ctx.clearRect(0, 0, width, height);
+
+  paintBackground(ctx, project, timeSec, assets);
+
+  if (project.media?.background?.overlay && project.media.background.overlay.type !== "none") {
+    renderProceduralOverlay(ctx, project.media.background.overlay, timeSec, assets);
+  } else if (assets.lottieFrame) {
+    ctx.drawImage(assets.lottieFrame, 0, 0, width, height);
+  }
+
+  paintIntro(ctx, project, timeSec);
+
+  // Phrase windowing: only render active lines within time window
+  for (const caption of project.captions ?? []) {
+    if (timeSec < caption.startSec - 0.6) continue;
+    if (timeSec > caption.endSec + 0.6) continue;
+    paintCaption(ctx, project, caption, timeSec);
+  }
+}
+===== src/schema/index.ts =====
+import { z } from "zod";
+
+/** Industry-standard choice: document times are always float seconds; frames/ms only at display/encode edges. */
+
+export const ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:5", "21:9"] as const;
+export const RESOLUTIONS = ["1280x720", "1920x1080", "2560x1440", "3840x2160"] as const;
+export const FPS_OPTIONS = [24, 25, 30, 50, 60] as const;
+export const RIPPLE_MODES = ["independent", "ripple", "roll", "relink"] as const;
+export const QUALITY_PRESETS = ["high", "balanced", "small", "custom"] as const;
+
+export const HexColorSchema = z
+  .string()
+  .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+
+export const EasingNameSchema = z.enum([
+  "linear",
+  "ease-in",
+  "ease-out",
+  "ease-in-out",
+  "ease-in-cubic",
+  "ease-out-cubic",
+  "ease-in-out-cubic",
+  "ease-out-back",
+  "ease-out-expo",
+]);
+
+export const EasingSchema = z.object({
+  type: z.enum(["named", "cubic-bezier", "spring"]),
+  name: EasingNameSchema.optional(),
+  bezier: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+  stiffness: z.number().optional(),
+  damping: z.number().optional(),
+});
+
+export const AnimPresetSchema = z.enum([
+  "none",
+  "fade",
+  "slide",
+  "scale",
+  "blur",
+  "typewriter",
+  "cascade",
+  "wipe",
+  "spring",
+  "pop",
+  "bounce",
+  "wave",
+]);
+
+export const CustomAnimationKeyframeSchema = z.object({
+  at: z.number().min(0).max(1),
+  opacity: z.number().min(0).max(1).optional(),
+  translateX: z.number().min(-4096).max(4096).optional(),
+  translateY: z.number().min(-4096).max(4096).optional(),
+  scale: z.number().min(0).max(20).optional(),
+  rotation: z.number().min(-3600).max(3600).optional(),
+  blur: z.number().min(0).max(256).optional(),
+});
+export const CustomAnimationSchema = z.object({
+  version: z.literal(1),
+  enabled: z.boolean().default(true),
+  target: z.enum(["line", "word"]).default("line"),
+  durationSec: z.number().positive().max(60),
+  offsetSec: z.number().min(-60).max(60).default(0),
+  easing: EasingNameSchema.default("linear"),
+  keyframes: z.array(CustomAnimationKeyframeSchema).min(2).max(64),
+});
+
+export const AnimSpecSchema = z.object({
+  preset: AnimPresetSchema,
+  durationSec: z.number().nonnegative(),
+  delaySec: z.number().nonnegative(),
+  easing: EasingSchema,
+  direction: z.enum(["up", "down", "left", "right"]).optional(),
+  distance: z.number().optional(),
+  staggerSec: z.number().optional(),
+  custom: CustomAnimationSchema.optional(),
+});
+
+export const HighlightStyleSchema = z.enum([
+  "none",
+  "color",
+  "sweep",
+  "box",
+  "scale",
+  "underline",
+  "glow",
+  "shimmer",
+]);
+
+export const OVERLAY_TYPES = [
+  "none",
+  "bokeh",
+  "starfield",
+  "soundwave",
+  "embers",
+  "light-leak",
+  "scanlines",
+  "lottie",
+] as const;
+
+export const OverlaySpecSchema = z.object({
+  type: z.enum(OVERLAY_TYPES).default("none"),
+  opacity: z.number().min(0).max(1).default(0.6),
+  speed: z.number().min(0.1).max(5).default(1),
+  blendMode: z.enum(["source-over", "screen", "lighter"]).default("screen"),
+  scale: z.number().min(0.2).max(3).default(1),
+  lottieJson: z.string().optional(),
+  lottieName: z.string().optional(),
+});
+
+export type OverlaySpec = z.infer<typeof OverlaySpecSchema>;
+
+export const HighlightSpecSchema = z.object({
+  style: HighlightStyleSchema,
+  intensity: z.number().min(0).max(2).default(1),
+  enabled: z.boolean().default(true).optional(),
+});
+
+export const ShadowSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  blur: z.number().nonnegative(),
+  color: z.string(),
+  opacity: z.number().min(0).max(1),
+});
+
+export const GlowSchema = z.object({
+  color: z.string(),
+  blur: z.number().nonnegative(),
+  opacity: z.number().min(0).max(1),
+});
+
+export const GradientStopSchema = z.object({
+  offset: z.number().min(0).max(1),
+  color: z.string(),
+});
+
+export const GradientSchema = z.object({
+  enabled: z.boolean(),
+  angleDeg: z.number(),
+  stops: z.array(GradientStopSchema).min(2),
+});
+
+export const CaptionBoxSchema = z.object({
+  enabled: z.boolean(),
+  fill: z.string(),
+  opacity: z.number().min(0).max(1),
+  paddingX: z.number(),
+  paddingY: z.number(),
+  radius: z.number(),
+});
+
+export const AnchorSchema = z.enum([
+  "top-left",
+  "top-center",
+  "top-right",
+  "middle-left",
+  "middle-center",
+  "middle-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+]);
+
+export const BackgroundPillSchema = z.object({
+  enabled: z.boolean().default(false).optional(),
+  color: z.string().default("#000000"),
+  radius: z.number().default(12),
+  padX: z.number().default(24),
+  padY: z.number().default(14),
+  opacity: z.number().min(0).max(1).default(0.4),
+});
+
+export const CaptionPositionSchema = z.object({
+  x: z.number().default(50),
+  y: z.number().default(72),
+  anchor: z.enum(["top", "center", "bottom"]).default("center"),
+});
+
+export const KaraokeModeSchema = z.enum(["none", "word-color", "wipe", "outline-fill"]);
+export type KaraokeMode = z.infer<typeof KaraokeModeSchema>;
+
+export const CaptionStyleSchema = z.object({
+  fontFamily: z.string(),
+  fontWeight: z.number(),
+  italic: z.boolean().default(false),
+  fontSizePct: z.number().default(5),
+  fontSize: z.number().optional(), // alias/relative helper
+  lineHeight: z.number().default(1.2),
+  letterSpacing: z.number().default(0.02),
+  wordSpacing: z.number().default(0).optional(),
+  align: z.enum(["left", "center", "right"]).default("center"),
+  uppercase: z.boolean().default(false).optional(),
+  transform: z.enum(["uppercase", "lowercase", "capitalize", "none"]).optional(),
+  maxCharsPerLine: z.number().default(32),
+  maxLines: z.number().default(2),
+  maxWidth: z.number().default(90).optional(),
+  fill: z.string().default("#F4F1EA"),
+  activeFill: z.string().default("#F5C15A").optional(),
+  inactiveFill: z.string().default("#C8C2B4").optional(),
+  highlightFill: z.string().default("#F5C15A"),
+  pastFill: z.string().default("#C8C2B4"),
+  futureFill: z.string().default("#F4F1EA"),
+  strokeWidth: z.number().default(0).optional(),
+  strokeColor: z.string().default("#000000").optional(),
+  outlineColor: z.string().optional(),
+  outlineWidth: z.number().optional(),
+  shadow: ShadowSchema.optional(),
+  glow: GlowSchema.optional(),
+  gradient: GradientSchema.optional(),
+  box: CaptionBoxSchema.optional(),
+  backgroundPill: BackgroundPillSchema.optional(),
+  position: CaptionPositionSchema.optional(),
+  anchor: AnchorSchema.default("middle-center"),
+  xPercent: z.number().default(50),
+  yPercent: z.number().default(72),
+  rotation: z.number().default(0),
+  scale: z.number().default(1),
+  karaoke: KaraokeModeSchema.default("word-color").optional(),
+  activeScale: z.number().default(1.05).optional(),
+  inactiveOpacity: z.number().min(0).max(1).default(0.7).optional(),
+});
+
+export const WordTimingSourceSchema = z.enum(["whisper", "aligned", "snapped", "manual"]);
+export type WordTimingSource = z.infer<typeof WordTimingSourceSchema>;
+
+export const WordSchema = z.object({
+  id: z.string().optional(),
+  text: z.string(),
+  startSec: z.number(),
+  endSec: z.number(),
+  start: z.number().optional(), // alias
+  end: z.number().optional(),   // alias
+  syllableStarts: z.array(z.number()).optional(),
+  confidence: z.number().min(0).max(1).default(1),
+  source: WordTimingSourceSchema.default("aligned").optional(),
+});
+
+export type WordTiming = {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  startSec?: number;
+  endSec?: number;
+  syllableStarts?: number[];
+  confidence: number;
+  source: WordTimingSource;
+};
+
+export const CaptionSchema = z.object({
+  id: z.string(),
+  index: z.number().int().nonnegative(),
+  text: z.string(),
+  startSec: z.number(),
+  endSec: z.number(),
+  start: z.number().optional(), // alias
+  end: z.number().optional(),   // alias
+  instrumental: z.boolean().default(false),
+  confidence: z.number().min(0).max(1).default(1),
+  locked: z.boolean().default(false).optional(),
+  section: z.string().optional(),
+  styleOverride: CaptionStyleSchema.partial().optional(),
+  animation: z.object({
+    in: AnimSpecSchema,
+    out: AnimSpecSchema,
+    highlight: HighlightSpecSchema,
+  }),
+  words: z.array(WordSchema),
+});
+
+export type LineTiming = {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  startSec?: number;
+  endSec?: number;
+  words: WordTiming[];
+  confidence: number;
+  instrumental?: boolean;
+  section?: string;
+  index?: number;
+};
+
+export type Anim =
+  | { type: "fade"; inMs: number; outMs: number }
+  | { type: "scale"; from: number; to: number; inMs: number; ease: string }
+  | { type: "bounce"; amp: number; ms: number }
+  | { type: "slide"; dx: number; dy: number; ms: number }
+  | { type: "karaoke-wipe" }
+  | { type: "typewriter" }
+  | { type: "char-stagger"; delayMs: number }
+  | { type: "blur-in"; px: number; ms: number }
+  | { type: "glow-pulse"; toBeat?: boolean };
+
+export type Template = {
+  id: string;
+  name: string;
+  blurb?: string;
+  thumbnail?: string;
+  aspect: "9:16" | "16:9" | "1:1";
+  background: z.infer<typeof BackgroundLayerSchema>;
+  overlays: OverlaySpec[];
+  captionStyle: z.infer<typeof CaptionStyleSchema>;
+  animations: {
+    lineIn?: Anim[];
+    wordActive?: Anim[];
+    lineOut?: Anim[];
+  };
+};
+
+export const AssetRefSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["audio", "image", "font", "lottie", "clip"]),
+  name: z.string(),
+  mime: z.string(),
+  durationSec: z.number().optional(),
+  sha256: z.string().optional(),
+});
+
+export type OverlayType = (typeof OVERLAY_TYPES)[number];
+
+export const VISUALIZER_TYPES = ["bars", "wave", "circle", "mirror"] as const;
+export const VISUALIZER_POSITIONS = ["bottom", "middle", "behind-text", "custom"] as const;
+
+export const VisualizerConfigSchema = z.object({
+  type: z.enum(VISUALIZER_TYPES).default("bars"),
+  colorA: z.string().default("#F5C15A"),
+  colorB: z.string().default("#67F0FF"),
+  sensitivity: z.number().min(0.1).max(3).default(1),
+  position: z.enum(VISUALIZER_POSITIONS).default("bottom"),
+  xPercent: z.number().min(0).max(100).default(50).optional(),
+  yPercent: z.number().min(0).max(100).default(92).optional(),
+  widthPercent: z.number().min(10).max(100).default(74).optional(),
+  heightPercent: z.number().min(5).max(60).default(22).optional(),
+  barCount: z.number().int().min(8).max(128).default(48),
+  opacity: z.number().min(0).max(1).default(0.35),
+});
+
+export type VisualizerConfig = z.infer<typeof VisualizerConfigSchema>;
+export type VisualizerType = (typeof VISUALIZER_TYPES)[number];
+export type VisualizerPosition = (typeof VISUALIZER_POSITIONS)[number];
+
+export const BackgroundLayerSchema = z.object({
+  type: z.enum(["solid", "gradient", "image", "album-blur"]),
+  color: z.string().optional(),
+  colorB: z.string().optional(),
+  angleDeg: z.number().optional(),
+  imageAssetId: z.string().optional(),
+  kenBurns: z.boolean(),
+  kenBurnsZoom: z.number(),
+  blurPx: z.number(),
+  dim: z.number().min(0).max(1),
+  visualizer: z.boolean(),
+  visualizerConfig: VisualizerConfigSchema.optional().default({
+    type: "bars",
+    colorA: "#F5C15A",
+    colorB: "#67F0FF",
+    sensitivity: 1,
+    position: "bottom",
+    barCount: 48,
+    opacity: 0.35,
+  }),
+  overlay: OverlaySpecSchema.optional().default({
+    type: "none",
+    opacity: 0.6,
+    speed: 1,
+    blendMode: "screen",
+    scale: 1,
+  }),
+});
+
+export const ProjectMetaSchema = z.object({
+  title: z.string(),
+  artist: z.string(),
+  durationSec: z.number().nonnegative(),
+  fps: z.number().positive(),
+  resolution: z.enum(RESOLUTIONS),
+  aspectRatio: z.enum(ASPECT_RATIOS),
+  language: z.string().default("en"),
+});
+
+export const ProjectSettingsSchema = z.object({
+  rippleMode: z.enum(RIPPLE_MODES).default("ripple"),
+  snapping: z.boolean().default(true),
+  quality: z.enum(QUALITY_PRESETS).default("high"),
+  previewQuality: z.enum(["draft", "full"]).default("full"),
+  customBitrateKbps: z.number().optional(),
+  instrumentalDisplay: z.enum(["auto", "always-show", "hidden"]).default("auto"),
+
+  // NEW É+"
+  karaoke: z.boolean().default(true),        // global word-highlight on/off
+  syncOffsetMs: z.number().min(-2000).max(2000).default(0), // global nudge
+  wordLeadMs: z.number().min(-300).max(300).default(-40),   // per-word bias
+});
+
+export const ProjectMediaSchema = z.object({
+  masterAudio: AssetRefSchema.optional(),
+  vocalStem: AssetRefSchema.optional(),
+  background: BackgroundLayerSchema,
+  lottieAssetId: z.string().optional(),
+  customFontAssetId: z.string().optional(),
+});
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  version: z.number().int().nonnegative(),
+  meta: ProjectMetaSchema,
+  media: ProjectMediaSchema,
+  defaultStyle: CaptionStyleSchema,
+  captions: z.array(CaptionSchema),
+  settings: ProjectSettingsSchema,
+  presetId: z.string().optional(),
+  templateId: z.string().optional(),
+  styleOverride: CaptionStyleSchema.partial().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type Easing = z.infer<typeof EasingSchema>;
+export type AnimSpec = z.infer<typeof AnimSpecSchema>;
+export type HighlightSpec = z.infer<typeof HighlightSpecSchema>;
+export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
+export type Word = z.infer<typeof WordSchema>;
+export type Caption = z.infer<typeof CaptionSchema>;
+export type AssetRef = z.infer<typeof AssetRefSchema>;
+export type BackgroundLayer = z.infer<typeof BackgroundLayerSchema>;
+export type ProjectMeta = z.infer<typeof ProjectMetaSchema>;
+export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
+export type Project = z.infer<typeof ProjectSchema>;
+export type RippleMode = (typeof RIPPLE_MODES)[number];
+export type AspectRatio = (typeof ASPECT_RATIOS)[number];
+
+export const AsrWordSchema = z.object({
+  word: z.string(),
+  start: z.number(),
+  end: z.number(),
+  probability: z.number().optional(),
+});
+
+export const AsrSegmentSchema = z.object({
+  id: z.number().optional(),
+  start: z.number(),
+  end: z.number(),
+  text: z.string(),
+  avg_logprob: z.number().optional(),
+  no_speech_prob: z.number().optional(),
+  words: z.array(AsrWordSchema).optional(),
+});
+
+export const AsrResultSchema = z.object({
+  text: z.string(),
+  language: z.string().optional(),
+  duration: z.number().optional(),
+  words: z.array(AsrWordSchema).optional(),
+  segments: z.array(AsrSegmentSchema).optional(),
+});
+
+export type AsrWord = z.infer<typeof AsrWordSchema>;
+export type AsrSegment = z.infer<typeof AsrSegmentSchema>;
+export type AsrResult = z.infer<typeof AsrResultSchema>;
+
+export const LlmTiebreakSchema = z.object({
+  map: z.array(
+    z.object({
+      lyricIndex: z.number().int().nonnegative(),
+      segmentIndex: z.number().int().nonnegative(),
+    }),
+  ),
+});
+
+export type LlmTiebreak = z.infer<typeof LlmTiebreakSchema>;
+
+export const AnchorHitSchema = z.object({
+  lineIndex: z.number().int().nonnegative(),
+  offsetSec: z.number(),
+  peakConfidence: z.number(),
+  durationSec: z.number().optional(),
+});
+
+export type AnchorHit = z.infer<typeof AnchorHitSchema>;
+
+export const LyricLineSchema = z.object({
+  index: z.number().int().nonnegative(),
+  text: z.string(),
+  section: z.string().optional(),
+  instrumental: z.boolean(),
+});
+
+export const ParsedLyricsSchema = z.object({
+  title: z.string().optional(),
+  artist: z.string().optional(),
+  lines: z.array(LyricLineSchema),
+});
+
+export type LyricLine = z.infer<typeof LyricLineSchema>;
+export type ParsedLyrics = z.infer<typeof ParsedLyricsSchema>;
+
+export const AnalyzeProgressSchema = z.object({
+  stage: z.enum(["A", "B", "C", "D", "E", "F", "G", "H", "done", "error"]),
+  label: z.string(),
+  progress: z.number().min(0).max(1),
+  detail: z.string().optional(),
+  elapsedMs: z.number().optional(),
+});
+
+export type AnalyzeProgress = z.infer<typeof AnalyzeProgressSchema>;
+
+export const JobSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  type: z.enum(["analyze", "export"]),
+  status: z.enum(["queued", "running", "done", "error", "cancelled"]),
+  progress: z.number(),
+  stage: z.string(),
+  error: z.string().nullable(),
+  result: z.unknown().nullable(),
+});
+
+export type Job = z.infer<typeof JobSchema>;
+
+const CURRENT_VERSION = 1;
+
+export function defaultEasing(name: z.infer<typeof EasingNameSchema> = "ease-out-cubic"): Easing {
+  return { type: "named", name };
+}
+
+export function defaultAnim(preset: z.infer<typeof AnimPresetSchema> = "fade"): AnimSpec {
+  return {
+    preset,
+    durationSec: 0.25,
+    delaySec: 0,
+    easing: defaultEasing(),
+    direction: "up",
+    distance: 24,
+    staggerSec: 0.03,
+  };
+}
+
+export function defaultStyle(): CaptionStyle {
+  return {
+    fontFamily: "Outfit",
+    fontWeight: 600,
+    italic: false,
+    fontSizePct: 5,
+    letterSpacing: 0.02,
+    wordSpacing: 0,
+    lineHeight: 1.2,
+    align: "center",
+    transform: "none",
+    maxCharsPerLine: 32,
+    maxLines: 2,
+    fill: "#F4F1EA",
+    highlightFill: "#F5C15A",
+    pastFill: "#C8C2B4",
+    futureFill: "#F4F1EA",
+    outlineColor: "#000000",
+    outlineWidth: 0,
+    shadow: { x: 0, y: 4, blur: 18, color: "#000000", opacity: 0.55 },
+    glow: { color: "#F5C15A", blur: 0, opacity: 0 },
+    gradient: {
+      enabled: false,
+      angleDeg: 90,
+      stops: [
+        { offset: 0, color: "#FFFFFF" },
+        { offset: 1, color: "#F5C15A" },
+      ],
+    },
+    box: {
+      enabled: false,
+      fill: "#000000",
+      opacity: 0.35,
+      paddingX: 28,
+      paddingY: 16,
+      radius: 12,
+    },
+    anchor: "middle-center",
+    xPercent: 50,
+    yPercent: 72,
+    rotation: 0,
+    scale: 1,
+  };
+}
+
+export function defaultBackground(): BackgroundLayer {
+  return {
+    type: "album-blur",
+    color: "#0B0D12",
+    colorB: "#1A1408",
+    angleDeg: 160,
+    kenBurns: true,
+    kenBurnsZoom: 1.12,
+    blurPx: 28,
+    dim: 0.45,
+    visualizer: false,
+    visualizerConfig: {
+      type: "bars",
+      colorA: "#F5C15A",
+      colorB: "#67F0FF",
+      sensitivity: 1,
+      position: "bottom",
+      barCount: 48,
+      opacity: 0.35,
+    },
+    overlay: {
+      type: "none",
+      opacity: 0.6,
+      speed: 1,
+      blendMode: "screen",
+      scale: 1,
+    },
+  };
+}
+
+export function defaultProject(partial?: Partial<Project>): Project {
+  const now = new Date().toISOString();
+  return {
+    id: partial?.id ?? "proj_draft",
+    version: CURRENT_VERSION,
+    meta: {
+      title: "Untitled",
+      artist: "Unknown Artist",
+      durationSec: 0,
+      fps: 30,
+      resolution: "1920x1080",
+      aspectRatio: "16:9",
+      language: "en",
+      ...partial?.meta,
+    },
+    media: {
+      background: defaultBackground(),
+      ...partial?.media,
+    },
+    defaultStyle: partial?.defaultStyle ?? defaultStyle(),
+    captions: partial?.captions ?? [],
+    settings: {
+      rippleMode: "ripple",
+      snapping: true,
+      quality: "high",
+      previewQuality: "full",
+      instrumentalDisplay: "auto",
+      karaoke: true,
+      syncOffsetMs: 0,
+      wordLeadMs: -40,
+      ...partial?.settings,
+    },
+    presetId: partial?.presetId ?? partial?.templateId ?? "seven-clouds",
+    templateId: partial?.templateId ?? partial?.presetId ?? "seven-clouds",
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+  };
+}
+
+type LooseRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is LooseRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** v0 É+' v1 is a documented no-op so the migrate() chain exists and is tested. */
+export function migrateV0ToV1(doc: unknown): unknown {
+  if (!isRecord(doc)) return doc;
+  const next: LooseRecord = { ...doc };
+  if (next.version === 0 || next.version === undefined) {
+    next.version = 1;
+  }
+  return next;
+}
+
+export function migrate(doc: unknown): Project {
+  let current = doc;
+  if (isRecord(current) && (current.version === 0 || current.version === undefined)) {
+    current = migrateV0ToV1(current);
+  }
+  const parsed = ProjectSchema.safeParse(current);
+  if (parsed.success) return parsed.data;
+  if (isRecord(current)) {
+    const fallback = defaultProject({
+      id: typeof current.id === "string" ? current.id : undefined,
+      meta: {
+        title: typeof current.meta === "object" && current.meta && "title" in current.meta
+          ? String((current.meta as LooseRecord).title ?? "Untitled")
+          : "Untitled",
+        artist: "Unknown Artist",
+        durationSec: 0,
+        fps: 30,
+        resolution: "1920x1080",
+        aspectRatio: "16:9",
+        language: "en",
+      },
+    });
+    return ProjectSchema.parse(fallback);
+  }
+  return defaultProject();
+}
+
+export const DOCUMENT_VERSION = CURRENT_VERSION;
+===== package =====
+{
+  "name": "lyricforge-studio",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "dotenv": "17.3.1",
+    "drizzle-orm": "0.45.2",
+    "groq-sdk": "^1.5.0",
+    "immer": "^11.1.16",
+    "lottie-web": "^5.13.0",
+    "lucide-react": "^1.31.0",
+    "mp4-muxer": "^5.2.2",
+    "music-metadata": "^11.14.0",
+    "next": "16.2.6",
+    "pg": "8.20.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "vitest": "^4.1.10",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.17",
+    "@types/node": "22.19.15",
+    "@types/pg": "8.18.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "postcss": "8.5.8",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3"
+  }
+}
+===== full tsc =====
+src/render-engine/custom-animation.test.ts(3,106): error TS2345: Argument of type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' is not assignable to parameter of type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+  Property 'enabled' is missing in type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' but required in type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+src/render-engine/custom-animation.test.ts(3,147): error TS2345: Argument of type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' is not assignable to parameter of type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+  Property 'enabled' is missing in type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' but required in type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+src/render-engine/custom-animation.test.ts(3,187): error TS2345: Argument of type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' is not assignable to parameter of type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+  Property 'enabled' is missing in type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' but required in type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+src/render-engine/custom-animation.test.ts(3,282): error TS2345: Argument of type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' is not assignable to parameter of type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+  Property 'enabled' is missing in type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' but required in type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+src/render-engine/custom-animation.test.ts(3,339): error TS2345: Argument of type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' is not assignable to parameter of type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+  Property 'enabled' is missing in type '{ version: 1; target: "line"; durationSec: number; offsetSec: number; easing: "linear"; keyframes: { at: number; opacity: number; translateX: number; }[]; }' but required in type '{ version: 1; enabled: boolean; target: "line" | "word"; durationSec: number; offsetSec: number; easing: "linear" | "ease-in" | "ease-out" | "ease-in-out" | "ease-in-cubic" | "ease-out-cubic" | "ease-in-out-cubic" | "ease-out-back" | "ease-out-expo"; keyframes: { ...; }[]; }'.
+src/render-engine/draw-frame.ts(516,52): error TS2304: Cannot find name 'timedWord'.
+src/render-engine/draw-frame.ts(523,62): error TS2304: Cannot find name 'lineBlur'.

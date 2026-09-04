@@ -1,0 +1,115 @@
+{
+  "name": "lyricforge-studio",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "dotenv": "17.3.1",
+    "drizzle-orm": "0.45.2",
+    "groq-sdk": "^1.5.0",
+    "immer": "^11.1.16",
+    "lottie-web": "^5.13.0",
+    "lucide-react": "^1.31.0",
+    "mp4-muxer": "^5.2.2",
+    "music-metadata": "^11.14.0",
+    "next": "16.2.6",
+    "pg": "8.20.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "vitest": "^4.1.10",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.17",
+    "@types/node": "22.19.15",
+    "@types/pg": "8.18.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "postcss": "8.5.8",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3"
+  }
+}
+---
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\index.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\lyrics.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\needleman-wunsch.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\needleman-wunsch.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\normalize.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\pipeline.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\pipeline.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\ripple.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\ripple.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\align-engine\sanitize.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\globals.css
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\layout.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\page.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\align\refine\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\analyze\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\assets\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\export\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\health\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\projects\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\projects\[id]\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\api\session\route.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\app\studio\[id]\page.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\ui-kit.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\wizard.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\inspector.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\preview-canvas.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\studio-app.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\components\studio\timeline.tsx
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\db\index.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\db\repository.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\db\schema.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\dsp\fft.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\dsp\fft.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\dsp\index.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\dsp\onset.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\dsp\onset.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\dsp\xcorr.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\audio-client.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\color.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\color.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\deep-align.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\errors.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\export-webcodecs.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\groq.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\idb.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\ids.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\lottie-renderer.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\session.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\lib\time.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\context.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\custom-animation.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\draw-frame.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\easing.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\index.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\overlays.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\presets.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\software-canvas.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\index.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\kinetic-pop.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\minimal-editorial.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\neon-karaoke.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\seven-clouds.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\stage-spotlight.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\synthwave-glow.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\tiktok-viral.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\render-engine\templates\vintage-film.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\index.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\schema\migrate.test.ts
+A:\OneDrive - SRc\Antigravity\Projects\ai-lyric-video-generator\src\store\studio-store.tsx

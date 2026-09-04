@@ -1,0 +1,56 @@
+import type { Template } from "@/schema";
+import { defaultBackground, defaultStyle } from "@/schema";
+
+export const tiktokViralTemplate: Template = {
+  id: "tiktok-viral",
+  name: "TikTok Viral",
+  blurb: "Bold vertical typography with high-contrast background pill and punchy karaoke wipe.",
+  aspect: "9:16",
+  background: {
+    ...defaultBackground(),
+    type: "solid",
+    color: "#08090E",
+    dim: 0.35,
+    visualizer: true,
+  },
+  overlays: [],
+  captionStyle: {
+    ...defaultStyle(),
+    fontFamily: "Montserrat",
+    fontWeight: 800,
+    uppercase: true,
+    transform: "uppercase",
+    fontSizePct: 5.5,
+    lineHeight: 1.15,
+    letterSpacing: 0.04,
+    align: "center",
+    fill: "#FFFFFF",
+    activeFill: "#FFE600",
+    pastFill: "#8E94A0",
+    futureFill: "#FFFFFF",
+    highlightFill: "#FFE600",
+    karaoke: "wipe",
+    activeScale: 1.12,
+    inactiveOpacity: 0.7,
+    strokeWidth: 3,
+    strokeColor: "#000000",
+    outlineWidth: 3,
+    outlineColor: "#000000",
+    backgroundPill: {
+      enabled: true,
+      color: "#000000",
+      radius: 16,
+      padX: 28,
+      padY: 16,
+      opacity: 0.65,
+    },
+    yPercent: 65,
+  },
+  animations: {
+    lineIn: [{ type: "scale", from: 0.85, to: 1.0, inMs: 180, ease: "ease-out-back" }],
+    wordActive: [
+      { type: "bounce", amp: 1.12, ms: 200 },
+      { type: "karaoke-wipe" },
+    ],
+  },
+};

@@ -1,0 +1,260 @@
+"use client";
+
+import React, { useMemo, useRef, useState, useEffect } from "react";
+import { formatTimecode } from "@/lib/time";
+import { useStudio } from "@/store/studio-store";
+import {
+  Maximize2,
+  Minus,
+  Music2,
+  Plus,
+  Scissors,
+  Unlink,
+  Volume2,
+  Magnet,
+  CircleAlert,
+  RefreshCw,
+  Sparkles,
+} from "lucide-react";
+import { Tooltip } from "../ui-kit";
+import type { Caption } from "@/schema";
+
+const SNAP_SEC = 8 / 90; // snap radius ≈ 8px at base zoom
+
+/** Snap a raw time to nearby caption edges / playhead / grid. */
+function snapTime(raw: number, targets: number[], zoom: number): number {
+  const radius = SNAP_SEC / Math.max(0.35, Math.min(3, zoom));
+  let best = raw;
+  let bestDist = radius;
+  for (const t of targets) {
+    const d = Math.abs(t - raw);
+    if (d < bestDist) {
+      bestDist = d;
+      best = t;
+    }
+  }
+  return Math.max(0, best);
+}
+
+function wordConfidenceColor(confidence: number) {
+  if (confidence >= 0.85) return "bg-emerald-500/25 text-emerald-300 border-emerald-500/40";
+  if (confidence >= 0.6) return "bg-amber-500/25 text-amber-300 border-amber-500/40";
+  return "bg-rose-500/25 text-rose-300 border-rose-500/40";
+}
+
+const CaptionBlock = React.memo(function CaptionBlock({
+  cap,
+  pxPerSec,
+  selected,
+  isActive,
+  rippleMode,
+  snapTargets,
+  zoom,
+  onSelect,
+  onMove,
+  onRoll,
+  onResize,
+  onTextCommit,
+}: {
+  cap: Caption;
+  pxPerSec: number;
+  selected: boolean;
+  isActive: boolean;
+  rippleMode: string;
+  snapTargets: number[];
+  zoom: number;
+  onSelect: (ids: string[], shift?: boolean) => void;
+  onMove: (id: string, nextStart: number) => void;
+  onRoll: (id: string, nextBoundary: number) => void;
+  onResize: (id: string, edge: "in" | "out", nextSec: number) => void;
+  onTextCommit: (id: string, text: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(cap.text);
+  const dur = Math.max(0.05, cap.endSec - cap.startSec);
+  const w = Math.round(Math.max(28, dur * pxPerSec));
+  const isMusic = Boolean(
+    cap.instrumental ||
+      !cap.text ||
+      cap.text.trim() === "♪",
+  );
+  const lowConf = !isMusic && cap.confidence < 0.6;
+
+  let bgColor: string;
+  let borderColor: string;
+  let tagColor: string;
+
+  if (isMusic) {
+    bgColor = "linear-gradient(135deg, rgba(139, 92, 246, 0.30) 0%, rgba(99, 102, 241, 0.16) 100%)";
+    borderColor = "rgba(167, 139, 250, 0.55)";
+    tagColor = "bg-purple-500/30 text-purple-200";
+  } else if (cap.confidence < 0.35) {
+    bgColor = "linear-gradient(135deg, rgba(244, 63, 94, 0.26) 0%, rgba(225, 29, 72, 0.13) 100%)";
+    borderColor = "rgba(251, 113, 133, 0.65)";
+    tagColor = "bg-rose-500/30 text-rose-200";
+  } else if (cap.confidence < 0.6) {
+    bgColor = "linear-gradient(135deg, rgba(245, 158, 11, 0.24) 0%, rgba(217, 119, 6, 0.12) 100%)";
+    borderColor = "rgba(251, 191, 36, 0.60)";
+    tagColor = "bg-amber-500/30 text-amber-200";
+  } else {
+    bgColor = "linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.10) 100%)";
+    borderColor = "rgba(52, 211, 153, 0.50)";
+    tagColor = "bg-emerald-500/25 text-emerald-200";
+  }
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(cap.text);
+    }
+  }, [cap.text, editing]);
+
+  const left = Math.round(cap.startSec * pxPerSec);
+
+  const startDrag = (
+    e: React.MouseEvent,
+    kind: "move" | "in" | "out" | "roll",
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect([cap.id], e.shiftKey);
+    const startX = e.clientX;
+    const initialStart = cap.startSec;
+    const initialEnd = cap.endSec;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const deltaSec = (ev.clientX - startX) / pxPerSec;
+      if (kind === "move") {
+        const raw = initialStart + deltaSec;
+        const snapped = snapTime(raw, snapTargets, zoom);
+        onMove(cap.id, snapped);
+      } else if (kind === "in") {
+        const raw = initialStart + deltaSec;
+        const snapped = snapTime(raw, snapTargets, zoom);
+        onResize(cap.id, "in", Math.min(snapped, initialEnd - 0.04));
+      } else if (kind === "out") {
+        const raw = initialEnd + deltaSec;
+        const snapped = snapTime(raw, snapTargets, zoom);
+        onResize(cap.id, "out", Math.max(snapped, initialStart + 0.04));
+      } else if (kind === "roll") {
+        const raw = initialEnd + deltaSec;
+        const snapped = snapTime(raw, snapTargets, zoom);
+        onRoll(cap.id, snapped);
+      }
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+
+  const showWordPills = !isMusic && cap.words && cap.words.length > 0 && w > 80;
+
+  return (
+    <div
+      data-block="1"
+      className={`group absolute rounded-xl border backdrop-blur-md transition-all shadow-md overflow-hidden ${
+        selected
+          ? "ring-2 ring-[var(--accent)] ring-offset-1 ring-offset-black z-30 shadow-xl"
+          : isActive
+          ? "ring-1 ring-[var(--accent)]/60 z-20"
+          : "hover:border-white/40 z-10"
+      }`}
+      style={{
+        left,
+        width: w,
+        top: 66,
+        height: 54,
+        background: bgColor,
+        borderColor: selected ? "var(--accent)" : isActive ? "var(--accent)" : borderColor,
+      }}
+      onMouseDown={(e) => startDrag(e, rippleMode === "roll" ? "roll" : "move")}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (!isMusic) setEditing(true);
+      }}
+    >
+      {/* Left resize handle */}
+      <span
+        data-block="1"
+        className="absolute inset-y-0 left-0 w-3 cursor-ew-resize rounded-l-xl bg-white/0 hover:bg-white/30 transition-colors z-10"
+        onMouseDown={(e) => startDrag(e, "in")}
+      >
+        <span className="h-4 w-0.5 rounded-full bg-white/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </span>
+
+      {/* Content */}
+      <div className="flex h-full flex-col justify-between p-2 pl-3 pr-3 pointer-events-none">
+        <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 ${tagColor}`}>
+              #{cap.index + 1}
+            </span>
+            {isMusic && <Music2 size={11} className="text-purple-300 shrink-0" />}
+            {lowConf && <CircleAlert size={11} className="text-amber-300 shrink-0" />}
+            {editing ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => {
+                  setEditing(false);
+                  if (draft.trim() && draft !== cap.text) onTextCommit(cap.id, draft.trim());
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setEditing(false);
+                    if (draft.trim() && draft !== cap.text) onTextCommit(cap.id, draft.trim());
+                  }
+                  if (e.key === "Escape") setEditing(false);
+                  e.stopPropagation();
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="pointer-events-auto w-full min-w-20 rounded bg-black/60 border border-[var(--accent)] px-1 text-[11px] font-semibold text-white outline-none"
+              />
+            ) : (
+              <span className="truncate font-semibold text-white text-[11px]">
+                {cap.text || "♪ Instrumental Gap ♪"}
+              </span>
+            )}
+          </div>
+
+          {!editing && (
+            <span
+              className={`h-2 w-2 rounded-full shrink-0 ${
+                isMusic
+                  ? "bg-purple-400 shadow-[0_0_6px_rgba(167,139,250,0.8)]"
+                  : cap.confidence >= 0.6
+                  ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]"
+                  : cap.confidence >= 0.35
+                  ? "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]"
+                  : "bg-rose-400 shadow-[0_0_6px_rgba(244,63,94,0.8)]"
+              }`}
+            />
+          )}
+        </div>
+
+        {/* Sub-word confidence segments indicator */}
+        {showWordPills ? (
+          <div className="flex items-center gap-0.5 overflow-hidden my-0.5">
+            {cap.words.map((wrd, wi) => {
+              const spanRatio = Math.max(0.01, (wrd.endSec - wrd.startSec) / dur);
+              return (
+                <div
+                  key={wi}
+                  className={`h-1.5 rounded-full border ${wordConfidenceColor(wrd.confidence)}`}
+                  style={{ flexGrow: Math.round(spanRatio * 100) }}
+                  title={`${wrd.text} (${(wrd.confidence * 100).toFixed(0)}% sync)`}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between text-[10px] text-[var(--faint)] font-mono">
+          <span>{formatTimecode(cap.startSec, 30, false)}</span>
+          <span className="rounded bg-black/40 px-1 py-0.5 text-[9px] text-[var(--muted)]">
+            {dur.toFixed(2)}s

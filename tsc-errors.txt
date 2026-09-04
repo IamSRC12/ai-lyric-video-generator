@@ -1,0 +1,15 @@
+src/dsp/onset.test.ts(26,11): error TS2739: Type '{ text: string; start: number; end: number; confidence: number; }' is missing the following properties from type 'WordTiming': id, source
+src/dsp/onset.test.ts(37,11): error TS2739: Type '{ text: string; start: number; end: number; confidence: number; }' is missing the following properties from type 'WordTiming': id, source
+src/dsp/onset.test.ts(47,11): error TS2739: Type '{ text: string; start: number; end: number; confidence: number; }' is missing the following properties from type 'WordTiming': id, source
+src/dsp/onset.test.ts(58,11): error TS2739: Type '{ text: string; start: number; end: number; confidence: number; }' is missing the following properties from type 'WordTiming': id, source
+src/lib/deep-align.ts(103,27): error TS2677: A type predicate's type must be assignable to its parameter's type.
+  Type '{ startSec: number; endSec: number; label?: string | undefined; }' is not assignable to type '{ startSec: number; endSec: number; label: string | undefined; }'.
+    Property 'label' is optional in type '{ startSec: number; endSec: number; label?: string | undefined; }' but required in type '{ startSec: number; endSec: number; label: string | undefined; }'.
+src/lib/deep-align.ts(106,33): error TS2322: Type '({ startSec: number; endSec: number; label: string | undefined; } | null)[]' is not assignable to type '{ startSec: number; endSec: number; label?: string | undefined; }[]'.
+  Type '{ startSec: number; endSec: number; label: string | undefined; } | null' is not assignable to type '{ startSec: number; endSec: number; label?: string | undefined; }'.
+    Type 'null' is not assignable to type '{ startSec: number; endSec: number; label?: string | undefined; }'.
+src/lib/deep-align.ts(142,11): error TS2322: Type '{ id: string; text: string; startSec: number | undefined; endSec: number | undefined; start: number | undefined; end: number | undefined; syllableStarts: number[] | undefined; confidence: number; source: "whisper" | ... 2 more ... | "manual"; }[]' is not assignable to type '{ text: string; startSec: number; endSec: number; confidence: number; id?: string | undefined; start?: number | undefined; end?: number | undefined; syllableStarts?: number[] | undefined; source?: "whisper" | ... 3 more ... | undefined; }[]'.
+  Type '{ id: string; text: string; startSec: number | undefined; endSec: number | undefined; start: number | undefined; end: number | undefined; syllableStarts: number[] | undefined; confidence: number; source: "whisper" | ... 2 more ... | "manual"; }' is not assignable to type '{ text: string; startSec: number; endSec: number; confidence: number; id?: string | undefined; start?: number | undefined; end?: number | undefined; syllableStarts?: number[] | undefined; source?: "whisper" | ... 3 more ... | undefined; }'.
+    Types of property 'startSec' are incompatible.
+      Type 'number | undefined' is not assignable to type 'number'.
+        Type 'undefined' is not assignable to type 'number'.

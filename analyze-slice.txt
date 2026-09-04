@@ -1,0 +1,152 @@
+export async function POST(req: Request) {
+  const form = await req.formData();
+  const lyrics = String(form.get("lyrics") ?? "");
+  const language = String(form.get("language") ?? "en");
+  const durationSec = Number(form.get("durationSec") ?? 0);
+  const assetId = String(form.get("assetId") ?? "");
+  const title = String(form.get("title") ?? "");
+  const artist = String(form.get("artist") ?? "");
+  const audio = form.get("audio");
+  const anchorsRaw = form.get("anchors");
+  let anchors: import("@/schema").AnchorHit[] = [];
+  if (anchorsRaw && typeof anchorsRaw === "string") {
+    try {
+      anchors = JSON.parse(anchorsRaw);
+    } catch {}
+  }
+  const parsed = parseLyrics(lyrics);
+  if (title && !parsed.title) parsed.title = title;
+  if (artist && !parsed.artist) parsed.artist = artist;
+
+  const encoder = new TextEncoder();
+  const started = Date.now();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (stage: AnalyzeProgress["stage"], label: string, progress: number, extra?: Record<string, unknown>) => {
+        const elapsedMs = Date.now() - started;
+        const etaMs = progress > 0.05 ? Math.round((elapsedMs * (1 - progress)) / progress) : null;
+        const payload = { stage, label, progress, elapsedMs, etaMs, ...extra };
+        controller.enqueue(encoder.encode(sse("progress", payload)));
+      };
+      try {
+        send("A", "Preprocess — inspecting audio and lyric sheet", 0.08);
+        if (parsed.lines.filter((l) => !l.instrumental).length === 0) {
+          throw new Error("Lyric sheet is empty. Paste lines; blank lines mark instrumental gaps.");
+        }
+
+        if (anchors.length > 0) {
+          const vocalAnchors = anchors.filter((a) => a.lineIndex >= 0).length;
+          const musicAnchors = anchors.length - vocalAnchors;
+          send("B", `FFT anchors — locked ${vocalAnchors} cut clips + ${musicAnchors} music zones to the master track`, 0.18, {
+            anchorsCount: anchors.length,
+          });
+        } else {
+          send("B", "FFT anchors — waiting on optional split clips", 0.16, {
+            detail: "No split clips supplied; skipping Stage B (highest-quality anchors).",
+          });
+        }
+
+        let apiKey: string | null = null;
+        try {
+          apiKey = await readGroqKey();
+        } catch {
+          apiKey = null;
+        }
+
+        let asr: AsrResult | null = null;
+        let modelId = "heuristic";
+
+        let models: { asr: string; llm: string } | null = null;
+
+        if (apiKey) {
+          send("C", "Contacting Groq Whisper for word-level ASR", 0.28);
+          try {
+            models = await getModelsCached(apiKey);
+            modelId = models.asr;
+          } catch {
+            modelId = "whisper-large-v3-turbo";
+          }
+          let blob: Blob | null = null;
+          let filename = "audio.wav";
+          let sha = "";
+          if (audio instanceof File) {
+            blob = audio;
+            filename = audio.name;
+            const buf = Buffer.from(await audio.arrayBuffer());
+            sha = `${buf.length}_${buf.subarray(0, 64).toString("hex")}`;
+            if (audio.size > 25 * 1024 * 1024) {
+              throw new Error(messageFor("oversized_upload"));
+            }
+          } else if (assetId) {
+            const asset = await getAsset(assetId);
+            if (asset) {
+              const abs = path.join(process.cwd(), asset.path);
+              const buf = await readFile(abs);
+              blob = new Blob([buf], { type: asset.mime });
+              filename = asset.filename;
+              sha = asset.sha256 ?? `${buf.length}`;
+            }
+          }
+          if (blob) {
+            let cached: AsrResult | null = null;
+            if (sha) {
+              try {
+                cached = await getAsrCache(sha, modelId, language);
+              } catch (err) {
+                console.warn("ASR cache read failed:", err);
+              }
+            }
+            if (cached) {
+              asr = cached;
+              send("C", "ASR cache hit — skipping Whisper", 0.42);
+            } else {
+              const prompt = lyricsPromptWindow(
+                parsed.lines.filter((l) => !l.instrumental).map((l) => l.text),
+                0,
+              );
+              asr = await transcribeAudio({
+                apiKey,
+                file: blob,
+                filename,
+                language,
+                prompt,
+                model: modelId,
+              });
+              if (sha && asr) {
+                try {
+                  await putAsrCache(sha, modelId, language, asr);
+                } catch (err) {
+                  console.warn("ASR cache write failed:", err);
+                }
+              }
+            }
+          }
+        } else {
+          send("C", "No Groq key — using syllable-weighted heuristic timing", 0.36, {
+            detail: "Add a Groq key for Whisper word timestamps.",
+          });
+        }
+
+        const dur = durationSec > 0 ? durationSec : asr?.duration ?? 180;
+        let captions: Caption[] = [];
+        let flagged = 0;
+        let meanConfidence = 0;
+        let mode: "asr" | "heuristic" = "heuristic";
+
+        const fullLyricText = parsed.lines.filter((l) => !l.instrumental).map((l) => l.text).join(" ");
+        const coverage = asr?.words?.length ? asrCoverage(asr.words, fullLyricText) : 0;
+
+        if (asr && asr.words && asr.words.length > 0 && coverage >= 0.15) {
+          mode = "asr";
+          send("D", "Normalize tokens (NFKC, numerals, metaphone)", 0.52);
+          send("E", "Needleman–Wunsch word-level alignment & hallucination purge", 0.64);
+          send("F", "Assign timestamps from sanitized ASR + FFT anchor warp", 0.74);
+          send("G", "Assembling timeline + ♪ music breaks (≥3.5s)", 0.82);
+
+          const parsedAsr = AsrResultSchema.parse(asr);
+          if (!parsedAsr.text.trim()) throw new Error(messageFor("empty_asr"));
+          const synced = runSync({ lines: parsed.lines, asr: parsedAsr, durationSec: dur, anchors });
+          captions = synced.captions;
+          flagged = synced.flagged;
+          meanConfidence = synced.meanConfidence;
+          if (synced.droppedAsrWords > 0) {

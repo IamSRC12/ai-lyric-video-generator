@@ -1,0 +1,1977 @@
+
+### src/render-engine/index.ts
+export { applyEasing, cubicBezier, hashString, mulberry32, spring } from "./easing";
+export {
+  STYLE_PRESETS,
+  TEMPLATES,
+  applyPreset,
+  applyTemplateToProject,
+  getTemplateById,
+  presetById,
+  resolveTemplateStyle,
+  type StylePreset,
+} from "./presets";
+export { drawFrame } from "./draw-frame";
+export { SoftwareCanvas } from "./software-canvas";
+export { fontString, type FrameContext, type FrameImage, type ResolvedAssets } from "./context";
+
+export function asFrameContext(ctx: unknown): import("./context").FrameContext {
+  return ctx as import("./context").FrameContext;
+}
+
+
+
+### src/render-engine/custom-animation.ts
+import type { z } from "zod";
+import { CustomAnimationSchema } from "@/schema";
+
+export type CustomAnimation = z.infer<typeof CustomAnimationSchema>;
+export interface AnimationTransform { opacity:number; translateX:number; translateY:number; scale:number; rotation:number; blur:number }
+const DEFAULTS: AnimationTransform={opacity:1,translateX:0,translateY:0,scale:1,rotation:0,blur:0};
+const clamp=(n:number,a=0,b=1)=>Math.min(b,Math.max(a,n));
+const ease=(t:number,name:CustomAnimation["easing"])=>name==="ease-in"?t*t:name==="ease-out"?1-(1-t)*(1-t):name==="ease-in-out"?(t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2):t;
+export function normalizeCustomAnimation(value:unknown):CustomAnimation|null { const parsed=CustomAnimationSchema.safeParse(value); if(!parsed.success)return null; return {...parsed.data,keyframes:[...parsed.data.keyframes].sort((a,b)=>a.at-b.at)}; }
+export function evaluateCustomAnimation(spec:CustomAnimation,timeSec:number,originSec=0):AnimationTransform {
+ const frames=[...spec.keyframes].sort((a,b)=>a.at-b.at); const raw=(timeSec-originSec-spec.offsetSec)/spec.durationSec; const p=clamp(raw); let hi=frames.findIndex(f=>f.at>=p); if(hi<0)hi=frames.length-1; const lo=Math.max(0,hi-1); const a=frames[lo],b=frames[hi]; const span=Math.max(1e-9,b.at-a.at); const t=lo===hi?0:ease(clamp((p-a.at)/span),spec.easing);
+ const value=(k:keyof AnimationTransform)=>{const av=a[k]??DEFAULTS[k],bv=b[k]??av;return av+(bv-av)*t};
+ return {opacity:clamp(value("opacity")),translateX:value("translateX"),translateY:value("translateY"),scale:Math.max(0,value("scale")),rotation:value("rotation"),blur:Math.max(0,value("blur"))};
+}
+export function applyAnimationTransform(ctx:CanvasRenderingContext2D,t:AnimationTransform){ctx.globalAlpha*=t.opacity;ctx.translate(t.translateX,t.translateY);ctx.rotate(t.rotation*Math.PI/180);ctx.scale(t.scale,t.scale);ctx.filter=t.blur>0?`blur(${t.blur}px)`:"none";}
+
+
+### src/schema/index.ts
+import { z } from "zod";
+
+/** Industry-standard choice: document times are always float seconds; frames/ms only at display/encode edges. */
+
+export const ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:5", "21:9"] as const;
+export const RESOLUTIONS = ["1280x720", "1920x1080", "2560x1440", "3840x2160"] as const;
+export const FPS_OPTIONS = [24, 25, 30, 50, 60] as const;
+export const RIPPLE_MODES = ["independent", "ripple", "roll", "relink"] as const;
+export const QUALITY_PRESETS = ["high", "balanced", "small", "custom"] as const;
+
+export const HexColorSchema = z
+  .string()
+  .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/);
+
+export const EasingNameSchema = z.enum([
+  "linear",
+  "ease-in",
+  "ease-out",
+  "ease-in-out",
+  "ease-in-cubic",
+  "ease-out-cubic",
+  "ease-in-out-cubic",
+  "ease-out-back",
+  "ease-out-expo",
+]);
+
+export const EasingSchema = z.object({
+  type: z.enum(["named", "cubic-bezier", "spring"]),
+  name: EasingNameSchema.optional(),
+  bezier: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+  stiffness: z.number().optional(),
+  damping: z.number().optional(),
+});
+
+export const AnimPresetSchema = z.enum([
+  "none",
+  "fade",
+  "slide",
+  "scale",
+  "blur",
+  "typewriter",
+  "cascade",
+  "wipe",
+  "spring",
+  "pop",
+  "bounce",
+  "wave",
+]);
+
+export const CustomAnimationKeyframeSchema = z.object({
+  at: z.number().min(0).max(1),
+  opacity: z.number().min(0).max(1).optional(),
+  translateX: z.number().min(-4096).max(4096).optional(),
+  translateY: z.number().min(-4096).max(4096).optional(),
+  scale: z.number().min(0).max(20).optional(),
+  rotation: z.number().min(-3600).max(3600).optional(),
+  blur: z.number().min(0).max(256).optional(),
+});
+export const CustomAnimationSchema = z.object({
+  version: z.literal(1),
+  target: z.enum(["line", "word"]).default("line"),
+  durationSec: z.number().positive().max(60),
+  offsetSec: z.number().min(-60).max(60).default(0),
+  easing: EasingNameSchema.default("linear"),
+  keyframes: z.array(CustomAnimationKeyframeSchema).min(2).max(64),
+});
+
+export const AnimSpecSchema = z.object({
+  preset: AnimPresetSchema,
+  durationSec: z.number().nonnegative(),
+  delaySec: z.number().nonnegative(),
+  easing: EasingSchema,
+  direction: z.enum(["up", "down", "left", "right"]).optional(),
+  distance: z.number().optional(),
+  staggerSec: z.number().optional(),
+  custom: CustomAnimationSchema.optional(),
+});
+
+export const HighlightStyleSchema = z.enum([
+  "none",
+  "color",
+  "sweep",
+  "box",
+  "scale",
+  "underline",
+  "glow",
+  "shimmer",
+]);
+
+export const OVERLAY_TYPES = [
+  "none",
+  "bokeh",
+  "starfield",
+  "soundwave",
+  "embers",
+  "light-leak",
+  "scanlines",
+  "lottie",
+] as const;
+
+export const OverlaySpecSchema = z.object({
+  type: z.enum(OVERLAY_TYPES).default("none"),
+  opacity: z.number().min(0).max(1).default(0.6),
+  speed: z.number().min(0.1).max(5).default(1),
+  blendMode: z.enum(["source-over", "screen", "lighter"]).default("screen"),
+  scale: z.number().min(0.2).max(3).default(1),
+  lottieJson: z.string().optional(),
+  lottieName: z.string().optional(),
+});
+
+export type OverlaySpec = z.infer<typeof OverlaySpecSchema>;
+
+export const HighlightSpecSchema = z.object({
+  style: HighlightStyleSchema,
+  intensity: z.number().min(0).max(2).default(1),
+  enabled: z.boolean().default(true).optional(),
+});
+
+export const ShadowSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  blur: z.number().nonnegative(),
+  color: z.string(),
+  opacity: z.number().min(0).max(1),
+});
+
+export const GlowSchema = z.object({
+  color: z.string(),
+  blur: z.number().nonnegative(),
+  opacity: z.number().min(0).max(1),
+});
+
+export const GradientStopSchema = z.object({
+  offset: z.number().min(0).max(1),
+  color: z.string(),
+});
+
+export const GradientSchema = z.object({
+  enabled: z.boolean(),
+  angleDeg: z.number(),
+  stops: z.array(GradientStopSchema).min(2),
+});
+
+export const CaptionBoxSchema = z.object({
+  enabled: z.boolean(),
+  fill: z.string(),
+  opacity: z.number().min(0).max(1),
+  paddingX: z.number(),
+  paddingY: z.number(),
+  radius: z.number(),
+});
+
+export const AnchorSchema = z.enum([
+  "top-left",
+  "top-center",
+  "top-right",
+  "middle-left",
+  "middle-center",
+  "middle-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+]);
+
+export const BackgroundPillSchema = z.object({
+  enabled: z.boolean().default(false).optional(),
+  color: z.string().default("#000000"),
+  radius: z.number().default(12),
+  padX: z.number().default(24),
+  padY: z.number().default(14),
+  opacity: z.number().min(0).max(1).default(0.4),
+});
+
+export const CaptionPositionSchema = z.object({
+  x: z.number().default(50),
+  y: z.number().default(72),
+  anchor: z.enum(["top", "center", "bottom"]).default("center"),
+});
+
+export const KaraokeModeSchema = z.enum(["none", "word-color", "wipe", "outline-fill"]);
+export type KaraokeMode = z.infer<typeof KaraokeModeSchema>;
+
+export const CaptionStyleSchema = z.object({
+  fontFamily: z.string(),
+  fontWeight: z.number(),
+  italic: z.boolean().default(false),
+  fontSizePct: z.number().default(5),
+  fontSize: z.number().optional(), // alias/relative helper
+  lineHeight: z.number().default(1.2),
+  letterSpacing: z.number().default(0.02),
+  wordSpacing: z.number().default(0).optional(),
+  align: z.enum(["left", "center", "right"]).default("center"),
+  uppercase: z.boolean().default(false).optional(),
+  transform: z.enum(["uppercase", "lowercase", "capitalize", "none"]).optional(),
+  maxCharsPerLine: z.number().default(32),
+  maxLines: z.number().default(2),
+  maxWidth: z.number().default(90).optional(),
+  fill: z.string().default("#F4F1EA"),
+  activeFill: z.string().default("#F5C15A").optional(),
+  inactiveFill: z.string().default("#C8C2B4").optional(),
+  highlightFill: z.string().default("#F5C15A"),
+  pastFill: z.string().default("#C8C2B4"),
+  futureFill: z.string().default("#F4F1EA"),
+  strokeWidth: z.number().default(0).optional(),
+  strokeColor: z.string().default("#000000").optional(),
+  outlineColor: z.string().optional(),
+  outlineWidth: z.number().optional(),
+  shadow: ShadowSchema.optional(),
+  glow: GlowSchema.optional(),
+  gradient: GradientSchema.optional(),
+  box: CaptionBoxSchema.optional(),
+  backgroundPill: BackgroundPillSchema.optional(),
+  position: CaptionPositionSchema.optional(),
+  anchor: AnchorSchema.default("middle-center"),
+  xPercent: z.number().default(50),
+  yPercent: z.number().default(72),
+  rotation: z.number().default(0),
+  scale: z.number().default(1),
+  karaoke: KaraokeModeSchema.default("word-color").optional(),
+  activeScale: z.number().default(1.05).optional(),
+  inactiveOpacity: z.number().min(0).max(1).default(0.7).optional(),
+});
+
+export const WordTimingSourceSchema = z.enum(["whisper", "aligned", "snapped", "manual"]);
+export type WordTimingSource = z.infer<typeof WordTimingSourceSchema>;
+
+export const WordSchema = z.object({
+  id: z.string().optional(),
+  text: z.string(),
+  startSec: z.number(),
+  endSec: z.number(),
+  start: z.number().optional(), // alias
+  end: z.number().optional(),   // alias
+  syllableStarts: z.array(z.number()).optional(),
+  confidence: z.number().min(0).max(1).default(1),
+  source: WordTimingSourceSchema.default("aligned").optional(),
+});
+
+export type WordTiming = {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  startSec?: number;
+  endSec?: number;
+  syllableStarts?: number[];
+  confidence: number;
+  source: WordTimingSource;
+};
+
+export const CaptionSchema = z.object({
+  id: z.string(),
+  index: z.number().int().nonnegative(),
+  text: z.string(),
+  startSec: z.number(),
+  endSec: z.number(),
+  start: z.number().optional(), // alias
+  end: z.number().optional(),   // alias
+  instrumental: z.boolean().default(false),
+  confidence: z.number().min(0).max(1).default(1),
+  locked: z.boolean().default(false).optional(),
+  section: z.string().optional(),
+  styleOverride: CaptionStyleSchema.partial().optional(),
+  animation: z.object({
+    in: AnimSpecSchema,
+    out: AnimSpecSchema,
+    highlight: HighlightSpecSchema,
+  }),
+  words: z.array(WordSchema),
+});
+
+export type LineTiming = {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  startSec?: number;
+  endSec?: number;
+  words: WordTiming[];
+  confidence: number;
+  instrumental?: boolean;
+  section?: string;
+  index?: number;
+};
+
+export type Anim =
+  | { type: "fade"; inMs: number; outMs: number }
+  | { type: "scale"; from: number; to: number; inMs: number; ease: string }
+  | { type: "bounce"; amp: number; ms: number }
+  | { type: "slide"; dx: number; dy: number; ms: number }
+  | { type: "karaoke-wipe" }
+  | { type: "typewriter" }
+  | { type: "char-stagger"; delayMs: number }
+  | { type: "blur-in"; px: number; ms: number }
+  | { type: "glow-pulse"; toBeat?: boolean };
+
+export type Template = {
+  id: string;
+  name: string;
+  blurb?: string;
+  thumbnail?: string;
+  aspect: "9:16" | "16:9" | "1:1";
+  background: z.infer<typeof BackgroundLayerSchema>;
+  overlays: OverlaySpec[];
+  captionStyle: z.infer<typeof CaptionStyleSchema>;
+  animations: {
+    lineIn?: Anim[];
+    wordActive?: Anim[];
+    lineOut?: Anim[];
+  };
+};
+
+export const AssetRefSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["audio", "image", "font", "lottie", "clip"]),
+  name: z.string(),
+  mime: z.string(),
+  durationSec: z.number().optional(),
+  sha256: z.string().optional(),
+});
+
+export type OverlayType = (typeof OVERLAY_TYPES)[number];
+
+export const VISUALIZER_TYPES = ["bars", "wave", "circle", "mirror"] as const;
+export const VISUALIZER_POSITIONS = ["bottom", "middle", "behind-text", "custom"] as const;
+
+export const VisualizerConfigSchema = z.object({
+  type: z.enum(VISUALIZER_TYPES).default("bars"),
+  colorA: z.string().default("#F5C15A"),
+  colorB: z.string().default("#67F0FF"),
+  sensitivity: z.number().min(0.1).max(3).default(1),
+  position: z.enum(VISUALIZER_POSITIONS).default("bottom"),
+  xPercent: z.number().min(0).max(100).default(50).optional(),
+  yPercent: z.number().min(0).max(100).default(92).optional(),
+  widthPercent: z.number().min(10).max(100).default(74).optional(),
+  heightPercent: z.number().min(5).max(60).default(22).optional(),
+  barCount: z.number().int().min(8).max(128).default(48),
+  opacity: z.number().min(0).max(1).default(0.35),
+});
+
+export type VisualizerConfig = z.infer<typeof VisualizerConfigSchema>;
+export type VisualizerType = (typeof VISUALIZER_TYPES)[number];
+export type VisualizerPosition = (typeof VISUALIZER_POSITIONS)[number];
+
+export const BackgroundLayerSchema = z.object({
+  type: z.enum(["solid", "gradient", "image", "album-blur"]),
+  color: z.string().optional(),
+  colorB: z.string().optional(),
+  angleDeg: z.number().optional(),
+  imageAssetId: z.string().optional(),
+  kenBurns: z.boolean(),
+  kenBurnsZoom: z.number(),
+  blurPx: z.number(),
+  dim: z.number().min(0).max(1),
+  visualizer: z.boolean(),
+  visualizerConfig: VisualizerConfigSchema.optional().default({
+    type: "bars",
+    colorA: "#F5C15A",
+    colorB: "#67F0FF",
+    sensitivity: 1,
+    position: "bottom",
+    barCount: 48,
+    opacity: 0.35,
+  }),
+  overlay: OverlaySpecSchema.optional().default({
+    type: "none",
+    opacity: 0.6,
+    speed: 1,
+    blendMode: "screen",
+    scale: 1,
+  }),
+});
+
+export const ProjectMetaSchema = z.object({
+  title: z.string(),
+  artist: z.string(),
+  durationSec: z.number().nonnegative(),
+  fps: z.number().positive(),
+  resolution: z.enum(RESOLUTIONS),
+  aspectRatio: z.enum(ASPECT_RATIOS),
+  language: z.string().default("en"),
+});
+
+export const ProjectSettingsSchema = z.object({
+  rippleMode: z.enum(RIPPLE_MODES).default("ripple"),
+  snapping: z.boolean().default(true),
+  quality: z.enum(QUALITY_PRESETS).default("high"),
+  previewQuality: z.enum(["draft", "full"]).default("full"),
+  customBitrateKbps: z.number().optional(),
+  instrumentalDisplay: z.enum(["auto", "always-show", "hidden"]).default("auto"),
+
+  // NEW ↓
+  karaoke: z.boolean().default(true),        // global word-highlight on/off
+  syncOffsetMs: z.number().min(-2000).max(2000).default(0), // global nudge
+  wordLeadMs: z.number().min(-300).max(300).default(-40),   // per-word bias
+});
+
+export const ProjectMediaSchema = z.object({
+  masterAudio: AssetRefSchema.optional(),
+  vocalStem: AssetRefSchema.optional(),
+  background: BackgroundLayerSchema,
+  lottieAssetId: z.string().optional(),
+  customFontAssetId: z.string().optional(),
+});
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  version: z.number().int().nonnegative(),
+  meta: ProjectMetaSchema,
+  media: ProjectMediaSchema,
+  defaultStyle: CaptionStyleSchema,
+  captions: z.array(CaptionSchema),
+  settings: ProjectSettingsSchema,
+  presetId: z.string().optional(),
+  templateId: z.string().optional(),
+  styleOverride: CaptionStyleSchema.partial().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type Easing = z.infer<typeof EasingSchema>;
+export type AnimSpec = z.infer<typeof AnimSpecSchema>;
+export type HighlightSpec = z.infer<typeof HighlightSpecSchema>;
+export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;
+export type Word = z.infer<typeof WordSchema>;
+export type Caption = z.infer<typeof CaptionSchema>;
+export type AssetRef = z.infer<typeof AssetRefSchema>;
+export type BackgroundLayer = z.infer<typeof BackgroundLayerSchema>;
+export type ProjectMeta = z.infer<typeof ProjectMetaSchema>;
+export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
+export type Project = z.infer<typeof ProjectSchema>;
+export type RippleMode = (typeof RIPPLE_MODES)[number];
+export type AspectRatio = (typeof ASPECT_RATIOS)[number];
+
+export const AsrWordSchema = z.object({
+  word: z.string(),
+  start: z.number(),
+  end: z.number(),
+  probability: z.number().optional(),
+});
+
+export const AsrSegmentSchema = z.object({
+  id: z.number().optional(),
+  start: z.number(),
+  end: z.number(),
+  text: z.string(),
+  avg_logprob: z.number().optional(),
+  no_speech_prob: z.number().optional(),
+  words: z.array(AsrWordSchema).optional(),
+});
+
+export const AsrResultSchema = z.object({
+  text: z.string(),
+  language: z.string().optional(),
+  duration: z.number().optional(),
+  words: z.array(AsrWordSchema).optional(),
+  segments: z.array(AsrSegmentSchema).optional(),
+});
+
+export type AsrWord = z.infer<typeof AsrWordSchema>;
+export type AsrSegment = z.infer<typeof AsrSegmentSchema>;
+export type AsrResult = z.infer<typeof AsrResultSchema>;
+
+export const LlmTiebreakSchema = z.object({
+  map: z.array(
+    z.object({
+      lyricIndex: z.number().int().nonnegative(),
+      segmentIndex: z.number().int().nonnegative(),
+    }),
+  ),
+});
+
+export type LlmTiebreak = z.infer<typeof LlmTiebreakSchema>;
+
+export const AnchorHitSchema = z.object({
+  lineIndex: z.number().int().nonnegative(),
+  offsetSec: z.number(),
+  peakConfidence: z.number(),
+  durationSec: z.number().optional(),
+});
+
+export type AnchorHit = z.infer<typeof AnchorHitSchema>;
+
+export const LyricLineSchema = z.object({
+  index: z.number().int().nonnegative(),
+  text: z.string(),
+  section: z.string().optional(),
+  instrumental: z.boolean(),
+});
+
+export const ParsedLyricsSchema = z.object({
+  title: z.string().optional(),
+  artist: z.string().optional(),
+  lines: z.array(LyricLineSchema),
+});
+
+export type LyricLine = z.infer<typeof LyricLineSchema>;
+export type ParsedLyrics = z.infer<typeof ParsedLyricsSchema>;
+
+export const AnalyzeProgressSchema = z.object({
+  stage: z.enum(["A", "B", "C", "D", "E", "F", "G", "H", "done", "error"]),
+  label: z.string(),
+  progress: z.number().min(0).max(1),
+  detail: z.string().optional(),
+  elapsedMs: z.number().optional(),
+});
+
+export type AnalyzeProgress = z.infer<typeof AnalyzeProgressSchema>;
+
+export const JobSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  type: z.enum(["analyze", "export"]),
+  status: z.enum(["queued", "running", "done", "error", "cancelled"]),
+  progress: z.number(),
+  stage: z.string(),
+  error: z.string().nullable(),
+  result: z.unknown().nullable(),
+});
+
+export type Job = z.infer<typeof JobSchema>;
+
+const CURRENT_VERSION = 1;
+
+export function defaultEasing(name: z.infer<typeof EasingNameSchema> = "ease-out-cubic"): Easing {
+  return { type: "named", name };
+}
+
+export function defaultAnim(preset: z.infer<typeof AnimPresetSchema> = "fade"): AnimSpec {
+  return {
+    preset,
+    durationSec: 0.25,
+    delaySec: 0,
+    easing: defaultEasing(),
+    direction: "up",
+    distance: 24,
+    staggerSec: 0.03,
+  };
+}
+
+export function defaultStyle(): CaptionStyle {
+  return {
+    fontFamily: "Outfit",
+    fontWeight: 600,
+    italic: false,
+    fontSizePct: 5,
+    letterSpacing: 0.02,
+    wordSpacing: 0,
+    lineHeight: 1.2,
+    align: "center",
+    transform: "none",
+    maxCharsPerLine: 32,
+    maxLines: 2,
+    fill: "#F4F1EA",
+    highlightFill: "#F5C15A",
+    pastFill: "#C8C2B4",
+    futureFill: "#F4F1EA",
+    outlineColor: "#000000",
+    outlineWidth: 0,
+    shadow: { x: 0, y: 4, blur: 18, color: "#000000", opacity: 0.55 },
+    glow: { color: "#F5C15A", blur: 0, opacity: 0 },
+    gradient: {
+      enabled: false,
+      angleDeg: 90,
+      stops: [
+        { offset: 0, color: "#FFFFFF" },
+        { offset: 1, color: "#F5C15A" },
+      ],
+    },
+    box: {
+      enabled: false,
+      fill: "#000000",
+      opacity: 0.35,
+      paddingX: 28,
+      paddingY: 16,
+      radius: 12,
+    },
+    anchor: "middle-center",
+    xPercent: 50,
+    yPercent: 72,
+    rotation: 0,
+    scale: 1,
+  };
+}
+
+export function defaultBackground(): BackgroundLayer {
+  return {
+    type: "album-blur",
+    color: "#0B0D12",
+    colorB: "#1A1408",
+    angleDeg: 160,
+    kenBurns: true,
+    kenBurnsZoom: 1.12,
+    blurPx: 28,
+    dim: 0.45,
+    visualizer: false,
+    visualizerConfig: {
+      type: "bars",
+      colorA: "#F5C15A",
+      colorB: "#67F0FF",
+      sensitivity: 1,
+      position: "bottom",
+      barCount: 48,
+      opacity: 0.35,
+    },
+    overlay: {
+      type: "none",
+      opacity: 0.6,
+      speed: 1,
+      blendMode: "screen",
+      scale: 1,
+    },
+  };
+}
+
+export function defaultProject(partial?: Partial<Project>): Project {
+  const now = new Date().toISOString();
+  return {
+    id: partial?.id ?? "proj_draft",
+    version: CURRENT_VERSION,
+    meta: {
+      title: "Untitled",
+      artist: "Unknown Artist",
+      durationSec: 0,
+      fps: 30,
+      resolution: "1920x1080",
+      aspectRatio: "16:9",
+      language: "en",
+      ...partial?.meta,
+    },
+    media: {
+      background: defaultBackground(),
+      ...partial?.media,
+    },
+    defaultStyle: partial?.defaultStyle ?? defaultStyle(),
+    captions: partial?.captions ?? [],
+    settings: {
+      rippleMode: "ripple",
+      snapping: true,
+      quality: "high",
+      previewQuality: "full",
+      instrumentalDisplay: "auto",
+      karaoke: true,
+      syncOffsetMs: 0,
+      wordLeadMs: -40,
+      ...partial?.settings,
+    },
+    presetId: partial?.presetId ?? partial?.templateId ?? "seven-clouds",
+    templateId: partial?.templateId ?? partial?.presetId ?? "seven-clouds",
+    createdAt: partial?.createdAt ?? now,
+    updatedAt: partial?.updatedAt ?? now,
+  };
+}
+
+type LooseRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is LooseRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** v0 → v1 is a documented no-op so the migrate() chain exists and is tested. */
+export function migrateV0ToV1(doc: unknown): unknown {
+  if (!isRecord(doc)) return doc;
+  const next: LooseRecord = { ...doc };
+  if (next.version === 0 || next.version === undefined) {
+    next.version = 1;
+  }
+  return next;
+}
+
+export function migrate(doc: unknown): Project {
+  let current = doc;
+  if (isRecord(current) && (current.version === 0 || current.version === undefined)) {
+    current = migrateV0ToV1(current);
+  }
+  const parsed = ProjectSchema.safeParse(current);
+  if (parsed.success) return parsed.data;
+  if (isRecord(current)) {
+    const fallback = defaultProject({
+      id: typeof current.id === "string" ? current.id : undefined,
+      meta: {
+        title: typeof current.meta === "object" && current.meta && "title" in current.meta
+          ? String((current.meta as LooseRecord).title ?? "Untitled")
+          : "Untitled",
+        artist: "Unknown Artist",
+        durationSec: 0,
+        fps: 30,
+        resolution: "1920x1080",
+        aspectRatio: "16:9",
+        language: "en",
+      },
+    });
+    return ProjectSchema.parse(fallback);
+  }
+  return defaultProject();
+}
+
+export const DOCUMENT_VERSION = CURRENT_VERSION;
+
+
+### src/components/studio/inspector.tsx
+"use client";
+
+import { useMemo, useState, useRef } from "react";
+import {
+  Sparkles,
+  Upload,
+  Type,
+  Palette,
+  Play,
+  Layers,
+  Activity,
+  Image as ImageIcon,
+  ChevronDown,
+  ChevronRight,
+  Flame,
+  LayoutGrid,
+  Sun,
+  SlidersHorizontal,
+  Compass,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
+import { TEMPLATES } from "@/render-engine";
+import { useStudio } from "@/store/studio-store";
+import type { OverlayType, OverlaySpec, VisualizerType, KaraokeMode } from "@/schema";
+import { ColorField, Slider } from "../ui-kit";
+import { putBlob } from "@/lib/idb";
+
+const TABS = [
+  { id: "templates", label: "Templates", icon: LayoutGrid },
+  { id: "text", label: "Text", icon: Type },
+  { id: "animation", label: "Animation", icon: Play },
+  { id: "position", label: "Position", icon: Compass },
+  { id: "effects", label: "Effects & Style", icon: Palette },
+  { id: "background", label: "Backdrop", icon: ImageIcon },
+  { id: "visualizer", label: "Visualizer", icon: Activity },
+  { id: "overlays", label: "Atmosphere", icon: Layers },
+] as const;
+
+const OVERLAY_OPTIONS: { type: OverlayType; label: string; desc: string }[] = [
+  { type: "none", label: "None", desc: "Clean background" },
+  { type: "bokeh", label: "Bokeh Orbs", desc: "Warm ambient particles" },
+  { type: "starfield", label: "Starfield", desc: "Deep space warp" },
+  { type: "soundwave", label: "Soundwave", desc: "Audio frequency ripples" },
+  { type: "embers", label: "Audio Embers", desc: "Beat-reactive sparks" },
+  { type: "light-leak", label: "Light Leak", desc: "Vintage 16mm flares" },
+  { type: "scanlines", label: "CRT Grain", desc: "Retro scanlines" },
+  { type: "lottie", label: "Custom Lottie", desc: "Import JSON animation" },
+];
+
+const GOOGLE_FONTS = [
+  "Outfit",
+  "Montserrat",
+  "Bebas Neue",
+  "Orbitron",
+  "Fraunces",
+  "Cinzel",
+  "Space Grotesk",
+  "Righteous",
+  "Inter",
+  "Poppins",
+  "Syne",
+  "Playfair Display",
+  "Permanent Marker",
+  "Rubik",
+  "Pacifico",
+];
+
+function Section({
+  title,
+  icon: Icon,
+  badge,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  icon?: React.ComponentType<{ size: number; className?: string }>;
+  badge?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#0d121c] overflow-hidden shadow-sm transition-all hover:border-white/15">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-3.5 py-3 text-xs font-bold text-[var(--ink)] hover:bg-white/[0.03] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {Icon && <Icon size={14} className="text-[var(--accent)]" />}
+          <span>{title}</span>
+          {badge && (
+            <span className="text-[9px] font-semibold text-[var(--accent)] bg-[var(--accent)]/15 px-1.5 py-0.5 rounded-full border border-[var(--accent)]/30">
+              {badge}
+            </span>
+          )}
+        </div>
+        {open ? <ChevronDown size={14} className="text-[var(--faint)]" /> : <ChevronRight size={14} className="text-[var(--faint)]" />}
+      </button>
+      {open && <div className="px-3.5 pb-4 pt-1 space-y-3.5 border-t border-white/5">{children}</div>}
+    </div>
+  );
+}
+
+export function Inspector() {
+  const studio = useStudio();
+  const [activeTab, setActiveTab] = useState<(typeof TABS)[number]["id"]>("templates");
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const fontInputRef = useRef<HTMLInputElement>(null);
+  const lottieInputRef = useRef<HTMLInputElement>(null);
+  const bgImageInputRef = useRef<HTMLInputElement>(null);
+
+  const selected = studio.project.captions.find((c) => c.id === studio.selectedIds[0]);
+  const style = selected?.styleOverride
+    ? { ...studio.project.defaultStyle, ...selected.styleOverride }
+    : studio.project.defaultStyle;
+  const overridden = Boolean(selected?.styleOverride);
+
+  const recentColors = useMemo(
+    () => [
+      style.fill ?? "#F4F1EA",
+      style.highlightFill ?? "#F5C15A",
+      style.pastFill ?? "#C8C2B4",
+      style.futureFill ?? "#F4F1EA",
+      "#F5C15A",
+      "#FFE600",
+      "#00FFA3",
+      "#67F0FF",
+      "#FF1493",
+      "#FFFFFF",
+      "#000000",
+      "#10B981",
+    ],
+    [style.fill, style.highlightFill, style.pastFill, style.futureFill],
+  );
+
+  const patch = (p: Partial<typeof style>) => studio.updateStyle(p, selected ? "selected" : "default");
+
+  const overlay: OverlaySpec = studio.project.media?.background?.overlay ?? {
+    type: "none",
+    opacity: 0.85,
+    speed: 1,
+    scale: 1,
+    blendMode: "screen",
+  };
+
+  const patchOverlay = (p: Partial<OverlaySpec>) => {
+    studio.commit((d) => {
+      if (!d.media.background.overlay) {
+        d.media.background.overlay = { type: "none", opacity: 0.85, speed: 1, scale: 1, blendMode: "screen" };
+      }
+      d.media.background.overlay = { ...d.media.background.overlay, ...p };
+    });
+  };
+
+  const handleFontUpload = async (file: File) => {
+    try {
+      setUploadError(null);
+      const fontName = file.name.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const buffer = await file.arrayBuffer();
+      const fontFace = new FontFace(fontName, buffer);
+      await fontFace.load();
+      document.fonts.add(fontFace);
+      patch({ fontFamily: fontName });
+      studio.notify(`Custom font "${fontName}" loaded!`);
+    } catch {
+      setUploadError("Could not load font file. Use .ttf, .otf, or .woff2.");
+    }
+  };
+
+  const handleBgImageUpload = async (file: File) => {
+    try {
+      const assetId = `bg-${studio.project.id}-${Date.now()}`;
+      await putBlob(assetId, file);
+      studio.commit((d) => {
+        d.media.background.type = "image";
+        d.media.background.imageAssetId = assetId;
+      });
+      studio.notify("Custom background backdrop applied!");
+    } catch {
+      setUploadError("Failed to store background image.");
+    }
+  };
+
+  const activeTemplateId = studio.project.templateId ?? studio.project.presetId ?? "seven-clouds";
+
+  return (
+    <div className="flex h-full flex-col bg-[#090d16] text-[var(--ink)] select-none">
+      {/* ===== STICKY TOP HEADER ===== */}
+      <div className="shrink-0 border-b border-[var(--line)] bg-[#0c101a] p-3 space-y-2.5">
+        {/* Scope Indicator Pill with Re-align Action */}
+        <div className="flex items-center justify-between rounded-lg bg-[#06080e] px-3 py-2 border border-white/5 text-[11px]">
+          <span className="text-[var(--muted)] flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${selected ? "bg-[var(--accent)] animate-pulse" : "bg-emerald-400"}`} />
+            {selected ? (
+              <strong className="text-[var(--accent)]">Editing Line #{selected.index + 1}</strong>
+            ) : (
+              <span>Global Design Defaults</span>
+            )}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {selected && (
+              <button
+                type="button"
+                onClick={() => studio.realignCaption(selected.id)}
+                className="flex items-center gap-1 text-[10px] bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 font-bold px-2 py-0.5 rounded-md border border-amber-500/30 transition-all shadow-sm"
+                title="Re-calculate word timings for this line using acoustic onset snapping"
+              >
+                <RefreshCw size={10} /> Re-align Line
+              </button>
+            )}
+            {overridden && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (selected) {
+                    studio.commit((d) => {
+                      const c = d.captions.find((x) => x.id === selected.id);
+                      if (c) delete c.styleOverride;
+                    });
+                  }
+                }}
+                className="text-[10px] text-[var(--accent)] hover:underline font-bold"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* CapCut Navigation Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto lf-scroll pb-1">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const isActive = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setActiveTab(t.id)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all shrink-0 ${
+                  isActive
+                    ? "bg-[var(--accent)] text-[var(--accent-ink)] shadow-md scale-[1.02]"
+                    : "text-[var(--muted)] hover:text-white hover:bg-white/5 border border-transparent"
+                }`}
+              >
+                <Icon size={12} />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {uploadError && (
+        <div className="m-3 rounded-xl border border-red-500/30 bg-red-950/40 p-2.5 text-xs text-red-200">{uploadError}</div>
+      )}
+
+      {/* ===== SCROLLABLE CONTROLS BODY ===== */}
+      <div className="flex-1 overflow-y-auto lf-scroll p-3 space-y-3.5">
+        {/* TAB 1: TEMPLATES GALLERY */}
+        {activeTab === "templates" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-[var(--accent)]" /> CapCut Design Presets
+                </h3>
+                <p className="text-[10px] text-[var(--faint)]">Instant theme switching. Lyric timings are NEVER mutated.</p>
+              </div>
+              <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                <ShieldCheck size={10} /> Sync Safe
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              {TEMPLATES.map((tpl) => {
+                const isCurrent = activeTemplateId === tpl.id;
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => studio.applyTemplate(tpl.id)}
+                    className={`flex flex-col text-left rounded-xl p-3 transition-all border ${
+                      isCurrent
+                        ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_16px_rgba(239,68,68,0.15)] ring-1 ring-[var(--accent)]"
+                        : "border-white/10 bg-[#0d121c] hover:border-white/20 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`font-bold text-xs ${isCurrent ? "text-[var(--accent)]" : "text-white"}`}>
+                        {tpl.name}
+                      </span>
+                      <span className="text-[9px] font-mono text-[var(--faint)] bg-white/5 px-2 py-0.5 rounded-md">
+                        {tpl.aspect ?? "16:9"} • {tpl.captionStyle.fontFamily}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-[var(--muted)] leading-relaxed">{tpl.blurb}</p>
+                    <div className="mt-2 flex items-center gap-2 text-[9px] text-[var(--faint)]">
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: tpl.captionStyle.highlightFill }} />
+                      <span>Karaoke: {tpl.captionStyle.karaoke ?? "wipe"}</span>
+                      <span>•</span>
+                      <span>Anim: {tpl.animations?.lineIn?.[0]?.type ?? "fade"}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: TEXT & TYPOGRAPHY */}
+        {activeTab === "text" && (
+          <>
+            <Section title="Typography & Font" icon={Type} defaultOpen={true}>
+              <div className="flex items-center justify-between">
+                <label className="lf-label">Font Family</label>
+                <button type="button" onClick={() => fontInputRef.current?.click()} className="lf-btn-ghost text-[10px] py-1 px-2.5">
+                  <Upload size={11} /> Custom Font
+                </button>
+              </div>
+              <input ref={fontInputRef} type="file" accept=".ttf,.otf,.woff,.woff2" hidden onChange={(e) => e.target.files?.[0] && void handleFontUpload(e.target.files[0])} />
+
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={GOOGLE_FONTS.includes(style.fontFamily) ? style.fontFamily : "custom"}
+                  onChange={(e) => { if (e.target.value !== "custom") patch({ fontFamily: e.target.value }); }}
+                  className="lf-select text-xs"
+                >
+                  {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+                  <option value="custom">Custom font...</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="Font name..."
+                  value={style.fontFamily}
+                  onChange={(e) => patch({ fontFamily: e.target.value })}
+                  className="lf-input text-xs"
+                />
+              </div>
+
+              <div className="flex gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => patch({ italic: !style.italic })}
+                  className={`lf-btn text-xs flex-1 !py-1.5 ${style.italic ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+                >
+                  <em>Italic</em>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => patch({ uppercase: !style.uppercase, transform: !style.uppercase ? "uppercase" : "none" })}
+                  className={`lf-btn text-xs flex-1 !py-1.5 ${style.uppercase ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+                >
+                  UPPERCASE
+                </button>
+                {(["left", "center", "right"] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => patch({ align: a })}
+                    className={`lf-btn text-xs flex-1 !py-1.5 capitalize ${style.align === a ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-[var(--line)] !text-[var(--muted)]"}`}
+                  >
+                    {a}
+                  </button>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Text Scale & Spacing" icon={SlidersHorizontal} defaultOpen={true}>
+              <Slider label="Font Size (% of video height)" min={2.5} max={12} step={0.2} value={style.fontSizePct} onChange={(v) => patch({ fontSizePct: v })} />
+              <Slider label="Font Weight" min={200} max={900} step={100} value={style.fontWeight} onChange={(v) => patch({ fontWeight: v })} />
+              <Slider label="Line Height" min={0.9} max={2.2} step={0.05} value={style.lineHeight} onChange={(v) => patch({ lineHeight: v })} />
+              <Slider label="Letter Spacing" min={-0.05} max={0.2} step={0.01} value={style.letterSpacing ?? 0} onChange={(v) => patch({ letterSpacing: v })} />
+            </Section>
+          </>
+        )}
+
+        {/* TAB 3: ANIMATION & KARAOKE */}
+        {activeTab === "animation" && (
+          <>
+            <Section title="Karaoke Mode & Wipe" icon={Play} defaultOpen={true}>
+              <div>
+                <label className="lf-label">Karaoke Rendering Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { id: "wipe", label: "Clip Wipe", desc: "Progressive fill sweep" },
+                    { id: "word-color", label: "Word Color", desc: "Instant active tint" },
+                    { id: "outline-fill", label: "Outline to Fill", desc: "Stroke becomes filled" },
+                    { id: "none", label: "Static Text", desc: "No word highlight" },
+                  ] as const).map((km) => {
+                    const isSel = (style.karaoke ?? "wipe") === km.id;
+                    return (
+                      <button
+                        key={km.id}
+                        type="button"
+                        onClick={() => patch({ karaoke: km.id as KaraokeMode })}
+                        className={`flex flex-col text-left rounded-xl p-2.5 transition-all border text-xs ${
+                          isSel
+                            ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                            : "border-white/5 hover:border-white/15 hover:bg-white/[0.02]"
+                        }`}
+                      >
+                        <span className={`font-bold ${isSel ? "text-[var(--accent)]" : "text-white"}`}>{km.label}</span>
+                        <span className="text-[9px] text-[var(--faint)]">{km.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Slider label="Active Word Scale" min={1.0} max={1.3} step={0.02} value={style.activeScale ?? 1.06} onChange={(v) => patch({ activeScale: v })} />
+              <Slider label="Upcoming Words Opacity" min={0.2} max={1.0} step={0.05} value={style.inactiveOpacity ?? 0.75} onChange={(v) => patch({ inactiveOpacity: v })} />
+              <Slider label="Word Highlight Lead (ms)" min={-250} max={250} step={5} value={studio.project.settings.wordLeadMs ?? 0} onChange={(v) => studio.commit((d) => { d.settings.wordLeadMs = v; })} />
+              <Slider label="Global Sync Offset (ms)" min={-1500} max={1500} step={10} value={studio.project.settings.syncOffsetMs ?? 0} onChange={(v) => studio.commit((d) => { d.settings.syncOffsetMs = v; })} />
+            </Section>
+
+            <Section title="Line Entrance & Exit Transitions" icon={Compass} defaultOpen={true}>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="lf-label">In-Transition</label>
+                  <select
+                    value={selected?.animation?.in?.preset ?? "fade"}
+                    onChange={(e) => {
+                      const p = e.target.value;
+                      if (selected) {
+                        studio.commit((d) => {
+                          const c = d.captions.find((x) => x.id === selected.id);
+                          if (c) c.animation.in.preset = p as typeof c.animation.in.preset;
+                        });
+                      } else {
+                        studio.commit((d) => {
+                          for (const c of d.captions) c.animation.in.preset = p as typeof c.animation.in.preset;
+                        });
+                      }
+                    }}
+                    className="lf-select w-full text-xs"
+                  >
+                    {["fade", "slide", "scale", "pop", "bounce", "blur", "wave", "typewriter", "cascade", "wipe", "spring", "none"].map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="lf-label">Out-Transition</label>
+                  <select
+                    value={selected?.animation?.out?.preset ?? "fade"}
+                    onChange={(e) => {
+                      const p = e.target.value;
+                      if (selected) {
+                        studio.commit((d) => {
+                          const c = d.captions.find((x) => x.id === selected.id);
+                          if (c) c.animation.out.preset = p as typeof c.animation.out.preset;
+                        });
+                      }
+                    }}
+                    className="lf-select w-full text-xs"
+                  >
+                    {["fade", "slide", "scale", "pop", "bounce", "blur", "wipe", "spring", "none"].map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </Section>
+          </>
+        )}
+
+        {/* TAB 4: POSITION & SAFE AREA */}
+        {activeTab === "position" && (
+          <Section title="Layout & Safe Zone" icon={Compass} defaultOpen={true}>
+            <Slider label="Vertical Position (Y %)" min={10} max={90} step={1} value={style.yPercent} onChange={(v) => patch({ yPercent: v })} />
+            <Slider label="Horizontal Position (X %)" min={10} max={90} step={1} value={style.xPercent} onChange={(v) => patch({ xPercent: v })} />
+            <Slider label="Rotation (Degrees)" min={-45} max={45} step={1} value={style.rotation ?? 0} onChange={(v) => patch({ rotation: v })} />
+            <div className="rounded-lg bg-[#06080e] p-3 border border-white/5 text-[11px] text-[var(--muted)] space-y-1">
+              <span className="font-bold text-white block">9:16 Vertical Safe Area</span>
+              <p>For TikTok and Reels, text is automatically constrained between 16% and 80% to avoid bottom UI elements.</p>
+            </div>
+          </Section>
+        )}
+
+        {/* TAB 5: EFFECTS & STYLE */}
+        {activeTab === "effects" && (
+          <>
+            <Section title="Karaoke Colors" icon={Palette} defaultOpen={true}>
+              <ColorField label="Active / Highlight Word" value={style.activeFill ?? style.highlightFill ?? "#F5C15A"} onChange={(v) => patch({ activeFill: v, highlightFill: v })} recent={recentColors} />
+              <ColorField label="Future / Upcoming Words" value={style.futureFill ?? style.fill ?? "#F4F1EA"} onChange={(v) => patch({ futureFill: v, fill: v })} recent={recentColors} />
+              <ColorField label="Past / Sung Words" value={style.pastFill ?? "#C8C2B4"} onChange={(v) => patch({ pastFill: v })} recent={recentColors} />
+            </Section>
+
+            <Section title="Background Pill Backing" icon={Layers} defaultOpen={true}>
+              <div className="flex items-center justify-between pb-1">
+                <div>
+                  <span className="text-xs font-bold text-white">Backdrop Pill Box</span>
+                  <span className="block text-[10px] text-[var(--faint)]">TikTok-style high contrast backing</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    patch({
+                      backgroundPill: {
+                        enabled: !style.backgroundPill?.enabled,
+                        color: style.backgroundPill?.color ?? "#000000",
+                        radius: style.backgroundPill?.radius ?? 14,
+                        padX: style.backgroundPill?.padX ?? 24,
+                        padY: style.backgroundPill?.padY ?? 14,
+                        opacity: style.backgroundPill?.opacity ?? 0.6,
+                      },
+                    })
+                  }
+                  className={`lf-badge ${style.backgroundPill?.enabled ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-white/10 text-[var(--muted)]"}`}
+                >
+                  {style.backgroundPill?.enabled ? "ON" : "OFF"}
+                </button>
+              </div>
+
+              {style.backgroundPill?.enabled && (
+                <div className="space-y-3 pt-2">
+                  <ColorField
+                    label="Pill Color"
+                    value={style.backgroundPill.color ?? "#000000"}
+                    onChange={(c) => patch({ backgroundPill: { ...style.backgroundPill!, color: c } })}
+                    recent={recentColors}
+                  />
+                  <Slider label="Pill Opacity" min={0.1} max={1} step={0.05} value={style.backgroundPill.opacity ?? 0.6} onChange={(v) => patch({ backgroundPill: { ...style.backgroundPill!, opacity: v } })} />
+                  <Slider label="Corner Radius" min={0} max={30} step={2} value={style.backgroundPill.radius ?? 14} onChange={(v) => patch({ backgroundPill: { ...style.backgroundPill!, radius: v } })} />
+                  <Slider label="Horizontal Padding" min={8} max={48} step={2} value={style.backgroundPill.padX ?? 24} onChange={(v) => patch({ backgroundPill: { ...style.backgroundPill!, padX: v } })} />
+                </div>
+              )}
+            </Section>
+
+            <Section title="Glow, Outline & Shadow" icon={Sun} defaultOpen={true}>
+              <div className="grid grid-cols-2 gap-2">
+                <ColorField label="Outline Color" value={style.outlineColor ?? style.strokeColor ?? "#000000"} onChange={(v) => patch({ outlineColor: v, strokeColor: v })} recent={recentColors} />
+                <ColorField label="Glow Color" value={style.glow?.color ?? style.highlightFill ?? "#F5C15A"} onChange={(v) => patch({ glow: { color: v, blur: style.glow?.blur ?? 16, opacity: 0.85 } })} recent={recentColors} />
+              </div>
+              <Slider label="Outline Width" min={0} max={16} step={0.5} value={style.outlineWidth ?? style.strokeWidth ?? 0} onChange={(v) => patch({ outlineWidth: v, strokeWidth: v })} />
+              <Slider label="Ambient Glow Blur" min={0} max={60} step={2} value={style.glow?.blur ?? 0} onChange={(v) => patch({ glow: { color: style.glow?.color ?? style.highlightFill ?? "#F5C15A", blur: v, opacity: v > 0 ? 0.85 : 0 } })} />
+              <Slider label="Drop Shadow Distance" min={0} max={30} step={1} value={style.shadow?.y ?? 4} onChange={(v) => patch({ shadow: { color: "#000000", x: 0, y: v, blur: 16, opacity: 0.6 } })} />
+            </Section>
+          </>
+        )}
+
+        {/* TAB 6: BACKDROP */}
+        {activeTab === "background" && (
+          <Section title="Video Background Backdrop" icon={ImageIcon} defaultOpen={true}>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: "album-blur", label: "Album Blur", desc: "Dynamic blur & Ken Burns" },
+                { id: "gradient", label: "Gradient", desc: "Dual color mesh" },
+                { id: "image", label: "Custom Image", desc: "Uploaded photo / art" },
+                { id: "solid", label: "Solid Dark", desc: "Minimalist solid fill" },
+              ] as const).map((b) => {
+                const isSel = studio.project.media.background.type === b.id;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => studio.commit((d) => { d.media.background.type = b.id as typeof d.media.background.type; })}
+                    className={`flex flex-col text-left rounded-xl p-2.5 transition-all border text-xs ${
+                      isSel
+                        ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                        : "border-white/5 hover:border-white/15 hover:bg-white/[0.02]"
+                    }`}
+                  >
+                    <span className={`font-bold ${isSel ? "text-[var(--accent)]" : "text-white"}`}>{b.label}</span>
+                    <span className="text-[9px] text-[var(--faint)]">{b.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(studio.project.media.background.type === "image" || studio.project.media.background.type === "album-blur") && (
+              <div className="pt-1 space-y-2">
+                <button type="button" onClick={() => bgImageInputRef.current?.click()} className="lf-btn-ghost w-full text-xs py-2">
+                  <Upload size={14} /> Upload Custom Background Photo
+                </button>
+                <input ref={bgImageInputRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && void handleBgImageUpload(e.target.files[0])} />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <ColorField label="Backdrop Color A" value={studio.project.media.background.color ?? "#0B0D12"} onChange={(c) => studio.commit((d) => { d.media.background.color = c; })} recent={recentColors} />
+              <ColorField label="Backdrop Color B" value={studio.project.media.background.colorB ?? "#1B2232"} onChange={(c) => studio.commit((d) => { d.media.background.colorB = c; })} recent={recentColors} />
+            </div>
+
+            <Slider label="Background Blur (px)" min={0} max={50} step={2} value={studio.project.media.background.blurPx} onChange={(v) => studio.commit((d) => { d.media.background.blurPx = v; })} />
+            <Slider label="Dim / Vignette Overlay" min={0} max={0.9} step={0.05} value={studio.project.media.background.dim} onChange={(v) => studio.commit((d) => { d.media.background.dim = v; })} />
+          </Section>
+        )}
+
+        {/* TAB 7: VISUALIZER */}
+        {activeTab === "visualizer" && (
+          <Section title="Audio Reactive Spectrum" icon={Activity} defaultOpen={true}>
+            <div className="flex items-center justify-between pb-1">
+              <div>
+                <span className="text-xs font-bold text-white">Live Spectrum Visualizer</span>
+                <span className="block text-[10px] text-[var(--faint)]">Pulses to the music frequencies</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => studio.commit((d) => { d.media.background.visualizer = !d.media.background.visualizer; })}
+                className={`lf-badge ${studio.project.media?.background?.visualizer ? "bg-[var(--accent)] text-[var(--accent-ink)]" : "bg-white/10 text-[var(--muted)]"}`}
+              >
+                {studio.project.media?.background?.visualizer ? "ACTIVE" : "OFF"}
+              </button>
+            </div>
+
+            {studio.project.media?.background?.visualizer && (
+              <div className="space-y-3 pt-2">
+                <div className="grid grid-cols-2 gap-2">
+                  {([{ id: "bars", label: "Bars" }, { id: "wave", label: "Waveform" }, { id: "circle", label: "Radial" }, { id: "mirror", label: "Mirror Bars" }] as const).map((v) => {
+                    const isSel = (studio.project.media?.background?.visualizerConfig?.type ?? "bars") === v.id;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => studio.commit((d) => {
+                          if (!d.media.background.visualizerConfig) {
+                            d.media.background.visualizerConfig = { type: "bars", colorA: "#F5C15A", colorB: "#67F0FF", sensitivity: 1, position: "bottom", barCount: 48, opacity: 0.35 };
+                          }
+                          d.media.background.visualizerConfig.type = v.id as VisualizerType;
+                        })}
+                        className={`lf-btn text-xs ${isSel ? "!border-[var(--accent)] !text-[var(--accent)] !bg-[var(--accent)]/10 font-bold" : "!border-white/5 !text-[var(--muted)]"}`}
+                      >
+                        {v.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <ColorField label="Bass Color A" value={studio.project.media?.background?.visualizerConfig?.colorA ?? "#F5C15A"} onChange={(c) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.colorA = c; })} recent={recentColors} />
+                  <ColorField label="Treble Color B" value={studio.project.media?.background?.visualizerConfig?.colorB ?? "#67F0FF"} onChange={(c) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.colorB = c; })} recent={recentColors} />
+                </div>
+
+                <Slider label="Audio Sensitivity" min={0.2} max={3} step={0.1} value={studio.project.media?.background?.visualizerConfig?.sensitivity ?? 1} onChange={(v) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.sensitivity = v; })} />
+                <Slider label="Spectrum Bars Count" min={16} max={96} step={4} value={studio.project.media?.background?.visualizerConfig?.barCount ?? 48} onChange={(v) => studio.commit((d) => { if (d.media.background.visualizerConfig) d.media.background.visualizerConfig.barCount = v; })} />
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* TAB 8: ATMOSPHERIC OVERLAYS */}
+        {activeTab === "overlays" && (
+          <Section title="Atmosphere & FX Overlays" icon={Layers} defaultOpen={true}>
+            <div className="flex items-center gap-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 text-xs text-amber-300">
+              <Flame size={14} className="shrink-0" />
+              <span>Overlays react dynamically with live audio beats.</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {OVERLAY_OPTIONS.map((opt) => {
+                const active = overlay.type === opt.type;
+                return (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => { if (opt.type === "lottie") lottieInputRef.current?.click(); else patchOverlay({ type: opt.type }); }}
+                    className={`flex flex-col text-left rounded-xl p-2.5 transition-all border text-xs ${
+                      active ? "border-[var(--accent)] bg-[var(--accent)]/15 shadow-[0_0_12px_rgba(239,68,68,0.2)]" : "border-white/5 hover:border-white/15 hover:bg-white/[0.02]"
+                    }`}
+                  >
+                    <span className={`font-bold ${active ? "text-[var(--accent)]" : "text-white"}`}>{opt.label}</span>
+                    <span className="mt-0.5 text-[9px] text-[var(--faint)]">{opt.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <input ref={lottieInputRef} type="file" accept=".json" hidden />
+
+            {overlay.type !== "none" && (
+              <div className="space-y-3 pt-2">
+                <Slider label="Overlay Opacity" min={0.1} max={1} step={0.05} value={overlay.opacity} onChange={(v) => patchOverlay({ opacity: v })} />
+                <Slider label="Animation Speed" min={0.2} max={3} step={0.1} value={overlay.speed} onChange={(v) => patchOverlay({ speed: v })} />
+                <Slider label="Particle Density" min={0.5} max={2.5} step={0.1} value={overlay.scale} onChange={(v) => patchOverlay({ scale: v })} />
+              </div>
+            )}
+          </Section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+### src/app/api/analyze/route.ts
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { asrCoverage, heuristicSync, parseLyrics, runSync, snapToSegments } from "@/align-engine";
+import { AsrResultSchema, type AnalyzeProgress, type AsrResult, type Caption } from "@/schema";
+import { getAsrCache, getAsset, putAsrCache } from "@/db/repository";
+import { deepAiAlignLyrics, llmTiebreak, transcribeAudio, validateKey } from "@/lib/groq";
+import { readGroqKey } from "@/lib/session";
+import { messageFor } from "@/lib/errors";
+import { createId } from "@/lib/ids";
+import { lyricsPromptWindow } from "@/align-engine/lyrics";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 120;
+
+const modelCache = new Map<string, { asr: string; llm: string; at: number }>();
+async function getModelsCached(apiKey: string) {
+  const hit = modelCache.get(apiKey);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit;
+  const info = await validateKey(apiKey);
+  const rec = { asr: info.asr, llm: info.llm, at: Date.now() };
+  modelCache.set(apiKey, rec);
+  return rec;
+}
+
+function sse(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+export async function POST(req: Request) {
+  const form = await req.formData();
+  const lyrics = String(form.get("lyrics") ?? "");
+  const language = String(form.get("language") ?? "en");
+  const durationSec = Number(form.get("durationSec") ?? 0);
+  const assetId = String(form.get("assetId") ?? "");
+  const title = String(form.get("title") ?? "");
+  const artist = String(form.get("artist") ?? "");
+  const audio = form.get("audio");
+  const anchorsRaw = form.get("anchors");
+  let anchors: import("@/schema").AnchorHit[] = [];
+  if (anchorsRaw && typeof anchorsRaw === "string") {
+    try {
+      anchors = JSON.parse(anchorsRaw);
+    } catch {}
+  }
+  const parsed = parseLyrics(lyrics);
+  if (title && !parsed.title) parsed.title = title;
+  if (artist && !parsed.artist) parsed.artist = artist;
+
+  const encoder = new TextEncoder();
+  const started = Date.now();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (stage: AnalyzeProgress["stage"], label: string, progress: number, extra?: Record<string, unknown>) => {
+        const elapsedMs = Date.now() - started;
+        const etaMs = progress > 0.05 ? Math.round((elapsedMs * (1 - progress)) / progress) : null;
+        const payload = { stage, label, progress, elapsedMs, etaMs, ...extra };
+        controller.enqueue(encoder.encode(sse("progress", payload)));
+      };
+      try {
+        send("A", "Preprocess — inspecting audio and lyric sheet", 0.08);
+        if (parsed.lines.filter((l) => !l.instrumental).length === 0) {
+          throw new Error("Lyric sheet is empty. Paste lines; blank lines mark instrumental gaps.");
+        }
+
+        if (anchors.length > 0) {
+          const vocalAnchors = anchors.filter((a) => a.lineIndex >= 0).length;
+          const musicAnchors = anchors.length - vocalAnchors;
+          send("B", `FFT anchors — locked ${vocalAnchors} cut clips + ${musicAnchors} music zones to the master track`, 0.18, {
+            anchorsCount: anchors.length,
+          });
+        } else {
+          send("B", "FFT anchors — waiting on optional split clips", 0.16, {
+            detail: "No split clips supplied; skipping Stage B (highest-quality anchors).",
+          });
+        }
+
+        let apiKey: string | null = null;
+        try {
+          apiKey = await readGroqKey();
+        } catch {
+          apiKey = null;
+        }
+
+        let asr: AsrResult | null = null;
+        let modelId = "heuristic";
+
+        let models: { asr: string; llm: string } | null = null;
+
+        if (apiKey) {
+          send("C", "Contacting Groq Whisper for word-level ASR", 0.28);
+          try {
+            models = await getModelsCached(apiKey);
+            modelId = models.asr;
+          } catch {
+            modelId = "whisper-large-v3-turbo";
+          }
+          let blob: Blob | null = null;
+          let filename = "audio.wav";
+          let sha = "";
+          if (audio instanceof File) {
+            blob = audio;
+            filename = audio.name;
+            const buf = Buffer.from(await audio.arrayBuffer());
+            sha = `${buf.length}_${buf.subarray(0, 64).toString("hex")}`;
+            if (audio.size > 25 * 1024 * 1024) {
+              throw new Error(messageFor("oversized_upload"));
+            }
+          } else if (assetId) {
+            const asset = await getAsset(assetId);
+            if (asset) {
+              const abs = path.join(process.cwd(), asset.path);
+              const buf = await readFile(abs);
+              blob = new Blob([buf], { type: asset.mime });
+              filename = asset.filename;
+              sha = asset.sha256 ?? `${buf.length}`;
+            }
+          }
+          if (blob) {
+            let cached: AsrResult | null = null;
+            if (sha) {
+              try {
+                cached = await getAsrCache(sha, modelId, language);
+              } catch (err) {
+                console.warn("ASR cache read failed:", err);
+              }
+            }
+            if (cached) {
+              asr = cached;
+              send("C", "ASR cache hit — skipping Whisper", 0.42);
+            } else {
+              const prompt = lyricsPromptWindow(
+                parsed.lines.filter((l) => !l.instrumental).map((l) => l.text),
+                0,
+              );
+              asr = await transcribeAudio({
+                apiKey,
+                file: blob,
+                filename,
+                language,
+                prompt,
+                model: modelId,
+              });
+              if (sha && asr) {
+                try {
+                  await putAsrCache(sha, modelId, language, asr);
+                } catch (err) {
+                  console.warn("ASR cache write failed:", err);
+                }
+              }
+            }
+          }
+        } else {
+          send("C", "No Groq key — using syllable-weighted heuristic timing", 0.36, {
+            detail: "Add a Groq key for Whisper word timestamps.",
+          });
+        }
+
+        const dur = durationSec > 0 ? durationSec : asr?.duration ?? 180;
+        let captions: Caption[] = [];
+        let flagged = 0;
+        let meanConfidence = 0;
+        let mode: "asr" | "heuristic" = "heuristic";
+
+        const fullLyricText = parsed.lines.filter((l) => !l.instrumental).map((l) => l.text).join(" ");
+        const coverage = asr?.words?.length ? asrCoverage(asr.words, fullLyricText) : 0;
+
+        if (asr && asr.words && asr.words.length > 0 && coverage >= 0.15) {
+          mode = "asr";
+          send("D", "Normalize tokens (NFKC, numerals, metaphone)", 0.52);
+          send("E", "Needleman–Wunsch word-level alignment & hallucination purge", 0.64);
+          send("F", "Assign timestamps from sanitized ASR + FFT anchor warp", 0.74);
+          send("G", "Assembling timeline + ♪ music breaks (≥3.5s)", 0.82);
+
+          const parsedAsr = AsrResultSchema.parse(asr);
+          if (!parsedAsr.text.trim()) throw new Error(messageFor("empty_asr"));
+          const synced = runSync({ lines: parsed.lines, asr: parsedAsr, durationSec: dur, anchors });
+          captions = synced.captions;
+          flagged = synced.flagged;
+          meanConfidence = synced.meanConfidence;
+          if (synced.droppedAsrWords > 0) {
+            send("F", `Filtered ${synced.droppedAsrWords} hallucinated ASR words`, 0.78);
+          }
+        } else {
+          mode = "heuristic";
+          if (asr && coverage < 0.15) {
+            send("C", "Whisper coverage low (<15%) — falling back to syllable-weighted heuristic sync", 0.45);
+          }
+          const synced = heuristicSync(parsed.lines, dur);
+          captions = asr ? snapToSegments(synced.captions, asr) : synced.captions;
+          flagged = synced.flagged;
+          meanConfidence = synced.meanConfidence;
+        }
+
+        send("H", "Score confidence", 0.9);
+        if (apiKey && flagged > 0 && asr?.segments?.length && models && mode === "heuristic") {
+          // Heuristic fallback: ask the LLM to place lines on ASR segments,
+          // then snap envelopes to those segments. Word-level NW sync already
+          // handles the asr path, so this only rescues the no-ASR case.
+          try {
+            const tiebreak = await llmTiebreak({
+              apiKey,
+              model: models.llm,
+              payload: {
+                lyrics: captions.map((c, i) => ({ index: i, text: c.text })),
+                segments: (asr.segments ?? []).slice(0, 40).map((s, i) => ({
+                  index: i,
+                  start: s.start,
+                  end: s.end,
+                  text: s.text,
+                })),
+              },
+            });
+            if (tiebreak && tiebreak.map.length > 0) {
+              const segs = asr.segments ?? [];
+              for (const row of tiebreak.map) {
+                const cap = captions[row.lyricIndex];
+                const seg = segs[row.segmentIndex];
+                if (!cap || !seg || cap.instrumental) continue;
+                captions[row.lyricIndex] = {
+                  ...cap,
+                  startSec: Math.max(0, seg.start),
+                  endSec: Math.max(seg.start + 1.0, Math.min(seg.end, seg.start + 12)),
+                  confidence: Math.max(cap.confidence, 0.55),
+                };
+              }
+              send("H", `LLM placed ${tiebreak.map.length} lines onto heard segments`, 0.93);
+            }
+          } catch (err) {
+            console.warn("LLM tiebreak optional step failed:", err);
+          }
+        }
+
+        send("done", `Sync complete (${mode.toUpperCase()})`, 1, {
+          captions,
+          flagged,
+          meanConfidence,
+          mode,
+          title: parsed.title,
+          artist: parsed.artist,
+          jobId: createId("job"),
+        });
+        controller.close();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : messageFor("generic");
+        controller.enqueue(encoder.encode(sse("progress", { stage: "error", label: message, progress: 1 })));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
+}
+
+
+### src/app/api/session/route.ts
+import { clearGroqKey, DEFAULT_GROQ_KEY, sessionHasKey, writeGroqKey } from "@/lib/session";
+import { validateKey } from "@/lib/groq";
+import { messageFor } from "@/lib/errors";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  return Response.json({
+    configured: await sessionHasKey(),
+    defaultKey: DEFAULT_GROQ_KEY,
+  });
+}
+
+export async function DELETE() {
+  await clearGroqKey();
+  return Response.json({ ok: true });
+}
+
+export async function POST(req: Request) {
+  const body = (await req.json()) as { key?: string; persist?: "session" | "store" };
+  const key = (body.key ?? "").trim() || DEFAULT_GROQ_KEY;
+  try {
+    const info = await validateKey(key);
+    await writeGroqKey(key, body.persist === "store" ? "store" : "session");
+    return Response.json({ ok: true, asr: info.asr, llm: info.llm });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : messageFor("invalid_api_key");
+    return Response.json({ ok: false, error: message }, { status: 401 });
+  }
+}
+
+
+### src/lib/deep-align.ts
+import type { AsrWord, Caption, Word } from "@/schema";
+import { defaultAnim } from "@/schema";
+import { createId } from "@/lib/ids";
+import { distributeWordsInLine } from "@/align-engine";
+
+export interface DeepAlignLine {
+  lineIndex: number; // vocal-line ordinal (0-based)
+  startSec: number;
+  endSec: number;
+  confidence: number;
+  matchedText?: string;
+}
+
+export interface DeepAlignResult {
+  alignedLines: DeepAlignLine[];
+  instrumentalBreaks?: { startSec: number; endSec: number; label?: string }[];
+}
+
+export interface DeepAlignPromptInput {
+  lines: { index: number; text: string; section?: string }[];
+  segments: { index: number; start: number; end: number; text: string }[];
+  durationSec: number;
+}
+
+export const DEEP_ALIGN_SYSTEM = `You are an expert audio-to-lyric synchronization and song structure alignment AI.
+Your task is to accurately map each lyric line to its exact heard time interval [startSec, endSec] in the audio based on the ASR speech transcript segments.
+
+Rules:
+1. Every lyric line sung in the audio must be mapped with its real [startSec, endSec] timestamps.
+2. Timestamps must be strictly non-decreasing (monotonic). Line N+1 cannot start before Line N starts.
+3. If an instrumental intro exists (e.g. 0s to 18s), the first lyric line MUST start when singing actually begins, NOT at 0s!
+4. If an instrumental solo, break, or interlude occurs between verses/choruses, the next lyric line must start after the break ends.
+5. If a line is repeated in the lyrics (e.g. chorus), match it to the corresponding audio timestamp where that repetition occurs.
+6. A single line should have a realistic singing duration (typically 1.5s to 6.0s depending on line length). NEVER crush multiple lines into a single second.
+7. Cover EVERY lyric line. Do not skip lines: a missed line breaks the whole timeline.
+8. Output strictly valid JSON:
+{
+  "alignedLines": [
+    { "lineIndex": 0, "startSec": 15.2, "endSec": 18.5, "confidence": 0.95, "matchedText": "heard words" }
+  ],
+  "instrumentalBreaks": [
+    { "startSec": 0, "endSec": 15.2, "label": "Intro" }
+  ]
+}`;
+
+export function buildDeepAlignPrompts(input: DeepAlignPromptInput): { system: string; user: string } {
+  return {
+    system: DEEP_ALIGN_SYSTEM,
+    user: JSON.stringify({
+      totalDurationSec: input.durationSec,
+      lyricLines: input.lines,
+      heardAudioSegments: input.segments,
+    }),
+  };
+}
+
+/**
+ * Validates an LLM deep-alignment response.
+ * Rejects anything non-monotonic, out of bounds, or with crushed line spans.
+ */
+export function parseDeepAlign(raw: unknown, durationSec: number): DeepAlignResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const rows = (raw as { alignedLines?: unknown }).alignedLines;
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  const lines: DeepAlignLine[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") return null;
+    const r = row as Record<string, unknown>;
+    const lineIndex = Number(r.lineIndex);
+    const startSec = Number(r.startSec);
+    const endSec = Number(r.endSec);
+    const confidence = Number(r.confidence ?? 0.6);
+    if (!Number.isInteger(lineIndex) || lineIndex < 0) return null;
+    if (!Number.isFinite(startSec) || !Number.isFinite(endSec)) return null;
+    if (startSec < -0.5 || endSec > durationSec + 0.75) return null;
+    if (endSec - startSec < 0.5 || endSec - startSec > 15) return null;
+    lines.push({
+      lineIndex,
+      startSec: Math.max(0, startSec),
+      endSec: Math.min(endSec, durationSec),
+      confidence: Math.max(0, Math.min(1, confidence)),
+      matchedText: typeof r.matchedText === "string" ? r.matchedText : undefined,
+    });
+  }
+  lines.sort((a, b) => a.lineIndex - b.lineIndex);
+  for (let i = 1; i < lines.length; i += 1) {
+    if (lines[i]!.lineIndex <= lines[i - 1]!.lineIndex) return null;
+    if (lines[i]!.startSec < lines[i - 1]!.startSec - 0.25) return null; // monotonic order guard
+  }
+
+  const breaks = (raw as { instrumentalBreaks?: unknown }).instrumentalBreaks;
+  const instrumentalBreaks = Array.isArray(breaks)
+    ? breaks
+        .map((b) => {
+          if (!b || typeof b !== "object") return null;
+          const r = b as Record<string, unknown>;
+          const s = Number(r.startSec);
+          const e = Number(r.endSec);
+          if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return null;
+          return { startSec: Math.max(0, s), endSec: Math.min(e, durationSec), label: typeof r.label === "string" ? r.label : undefined };
+        })
+        .filter((b): b is { startSec: number; endSec: number; label: string | undefined } => b !== null)
+    : [];
+
+  return { alignedLines: lines, instrumentalBreaks };
+}
+
+/**
+ * Repairs caption envelopes with LLM deep-alignment results.
+ * Only touches lines where the LLM is at least as confident as the current
+ * estimate, or the current line is weak (<0.65). Re-distributes words inside
+ * each repaired window using the ASR words that fall in it, then re-enforces
+ * global monotonic ordering and rebuilds instrumental gaps.
+ *
+ * Returns the repaired captions plus how many lines were moved.
+ */
+export function applyDeepAlignRepair(
+  captions: Caption[],
+  deep: DeepAlignResult,
+  asrWords: AsrWord[],
+  durationSec: number,
+): { captions: Caption[]; repaired: number } {
+  const deepByOrdinal = new Map(deep.alignedLines.map((l) => [l.lineIndex, l]));
+
+  // Work on vocal captions in their current order; ordinal = vocal order,
+  // matching the indices the LLM was given.
+  const vocals: Caption[] = captions.filter((c) => !c.instrumental).map((c) => ({ ...c, words: c.words.map((w) => ({ ...w })) }));
+
+  let repaired = 0;
+  vocals.forEach((cap, ordinal) => {
+    const d = deepByOrdinal.get(ordinal);
+    if (!d) return;
+    const shouldFix = d.confidence >= cap.confidence - 0.05 || cap.confidence < 0.65;
+    if (!shouldFix) return;
+
+    const start = Math.max(0, Math.min(d.startSec, durationSec - 0.7));
+    const end = Math.min(durationSec, Math.max(start + 0.7, d.endSec));
+    const windowWords = asrWords.filter((w) => w.start >= start - 0.35 && w.end <= end + 0.5);
+
+    const redistributed = distributeWordsInLine(cap.text, start, end, windowWords);
+    const words: Word[] = redistributed.map((w) => ({
+      id: w.id ?? createId("w"),
+      text: w.text,
+      startSec: w.startSec ?? 0,
+      endSec: w.endSec ?? 0,
+      start: w.startSec ?? 0,
+      end: w.endSec ?? 0,
+      syllableStarts: w.syllableStarts ?? [],
+      confidence: Math.max(w.confidence, 0.55),
+      source: w.source,
+    }));
+
+    cap.startSec = start;
+    cap.endSec = end;
+    cap.start = start;
+    cap.end = end;
+    cap.words = words;
+    cap.confidence = Math.max(cap.confidence, Math.min(0.92, d.confidence));
+    repaired += 1;
+  });
+
+  // Re-enforce monotonic song order (cap N starts after cap N-1 starts,
+  // overlaps resolved forward).
+  for (let i = 1; i < vocals.length; i += 1) {
+    const prev = vocals[i - 1]!;
+    const curr = vocals[i]!;
+    if (curr.startSec < prev.startSec) {
+      curr.startSec = prev.startSec;
+      curr.start = curr.startSec;
+      curr.endSec = Math.max(curr.startSec + 0.7, curr.endSec);
+      curr.end = curr.endSec;
+    }
+    if (prev.endSec > curr.startSec - 0.04) {
+      prev.endSec = Math.max(prev.startSec + 0.5, curr.startSec - 0.04);
+      prev.end = prev.endSec;
+      if (prev.words.length > 0) {
+        const last = prev.words[prev.words.length - 1]!;
+        if (last.endSec > prev.endSec) {
+          const scale = (prev.endSec - prev.words[0]!.startSec) / Math.max(0.01, last.endSec - prev.words[0]!.startSec);
+          let cursor = prev.words[0]!.startSec;
+          prev.words = prev.words.map((w) => {
+            const ns = cursor;
+            const nd = Math.max(0.08, (w.endSec - w.startSec) * Math.max(0.1, Math.min(1, scale)));
+            const ne = Math.min(prev.endSec, ns + nd);
+            cursor = ne;
+            return { ...w, startSec: ns, endSec: ne, start: ns, end: ne };
+          });
+        }
+      }
+    }
+  }
+
+  // Rebuild instrumental gap markers from the repaired envelopes.
+  const out: Caption[] = [];
+  vocals.forEach((cap, i) => {
+    const prev = vocals[i - 1];
+    if (prev && cap.startSec - prev.endSec > 3.5) {
+      out.push({
+        id: createId("gap"),
+        index: out.length,
+        text: "♪",
+        startSec: prev.endSec,
+        endSec: cap.startSec,
+        start: prev.endSec,
+        end: cap.startSec,
+        words: [],
+        animation: {
+          in: defaultAnim("fade"),
+          out: defaultAnim("fade"),
+          highlight: { style: "color", intensity: 0.4 },
+        },
+        confidence: 1,
+        locked: false,
+        instrumental: true,
+      });
+    }
+    out.push({ ...cap, index: out.length });
+  });
+
+  // Leading intro gap if the first line starts late.
+  const first = vocals[0];
+  if (first && first.startSec > 3.5) {
+    out.unshift({
+      id: createId("gap"),
+      index: 0,
+      text: "♪",
+      startSec: 0,
+      endSec: first.startSec,
+      start: 0,
+      end: first.startSec,
+      words: [],
+      animation: {
+        in: defaultAnim("fade"),
+        out: defaultAnim("fade"),
+        highlight: { style: "color", intensity: 0.4 },
+      },
+      confidence: 1,
+      locked: false,
+      instrumental: true,
+    });
+  }
+  out.forEach((c, i) => {
+    c.index = i;
+  });
+
+  return { captions: out, repaired };
+}
+

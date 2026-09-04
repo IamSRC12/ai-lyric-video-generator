@@ -1,0 +1,96 @@
+    }
+  };
+
+  async function generateWithoutAudio() {
+    setRunning(true);
+    setStartedAt(Date.now());
+    setEtaMs(2000);
+    setLog(["Parsing lyric sheet...", "Generating synchronized captions...", "Detecting instrumental breaks > 3.0s..."]);
+    setProgress(0.4);
+    const estDuration = Math.max(30, vocalCount * 3.8);
+    const sync = heuristicSync(parsed.lines, estDuration);
+    const project = defaultProject({
+      id: createId("proj"),
+      meta: { title: songTitle.trim() || parsed.title || "Custom Lyrics", artist: artistName.trim() || parsed.artist || "Unknown Artist", durationSec: estDuration, fps: 30, resolution: "1920x1080", aspectRatio: "16:9", language: "en" },
+      captions: sync.captions,
+    });
+    setProgress(0.8);
+    const saved = await fetch("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project }) });
+    if (!saved.ok) {
+      const errText = await saved.text().catch(() => "Unknown");
+      setLog((curr) => [...curr, `Error saving project: ${errText}`]);
+      setRunning(false);
+      return;
+    }
+    const json = (await saved.json()) as { project: { id: string } };
+    setProgress(1); setDoneElapsedSec(startedAt != null ? (Date.now() - startedAt) / 1000 : null); setLog((curr) => [...curr, "Project ready! Opening Studio..."]); setRunning(false);
+    startTransition(() => router.push(`/studio/${json.project.id}`));
+  }
+
+  async function analyze() {
+    if (!audioFile) { await generateWithoutAudio(); return; }
+    setRunning(true);
+    setStartedAt(Date.now());
+    setEtaMs(Math.round((6 + duration * 0.22) * 1000)); // initial estimate
+    setLog(["Starting speech & DSP alignment pipeline..."]);
+    setProgress(0.1);
+    const form = new FormData();
+    form.set("lyrics", lyrics); form.set("durationSec", String(duration));
+    form.set("title", songTitle.trim() || parsed.title || audioFile.name.replace(/\.[^.]+$/, ""));
+    form.set("artist", artistName.trim() || parsed.artist || "Unknown Artist"); form.set("language", "en");
+
+    try {
+      let masterMono = masterMonoRef.current;
+      if (!masterMono) {
+        const decoded = masterAudioBufferRef.current || (await decodeAudio(await audioFile.arrayBuffer()));
+        masterAudioBufferRef.current = decoded;
+        masterMono = downsampleMono(decoded, 16000);
+        masterMonoRef.current = masterMono;
+      }
+      const wav = encodeWavMono16(masterMono, 16000);
+      form.set("audio", new File([wav], "master.wav", { type: "audio/wav" }));
+
+      // Fast collect anchors (reuse already locked clips, or correlate remaining)
+      const anchors: AnchorHit[] = [];
+      for (const clip of clips) {
+        if (clip.lineIndex < 0 && !clip.isInstrumental) continue;
+        if (clip.fftLocked && clip.offsetSec !== undefined) {
+          anchors.push({
+            lineIndex: clip.lineIndex,
+            offsetSec: clip.offsetSec,
+            durationSec: clip.durationSec,
+            peakConfidence: clip.matchScore,
+          });
+        } else {
+          try {
+            const clipDecoded = await decodeAudio(await clip.file.arrayBuffer());
+            const clipMono = downsampleMono(clipDecoded, 16000);
+            const hit = crossCorrelate(masterMono, clipMono, 16000);
+            if (hit.peakConfidence >= 0.35) {
+              anchors.push({
+                lineIndex: clip.lineIndex,
+                offsetSec: hit.offsetSec,
+                durationSec: clipDecoded.duration,
+                peakConfidence: hit.peakConfidence,
+              });
+            }
+          } catch {}
+        }
+      }
+
+      if (anchors.length > 0) {
+        setLog((curr) => [...curr, `✓ Locked ${anchors.length} cut audio clips with FFT precision!`]);
+        form.set("anchors", JSON.stringify(anchors));
+      }
+
+      const res = await fetch("/api/analyze", { method: "POST", body: form });
+      if (!res.body) { setLog(["The analyze stream failed."]); setRunning(false); return; }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = ""; let captions: Caption[] = []; let flagged = 0;
+      let title = songTitle.trim() || parsed.title || "Untitled";
+      let artist = artistName.trim() || parsed.artist || "Unknown Artist";
+      let streamFailed = false;
+
+      while (true) {

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+
+  <defs>
+    <linearGradient id="bgNeon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#08031a"/>
+      <stop offset="50%" stop-color="#1a0533"/>
+      <stop offset="100%" stop-color="#040d21"/>
+    </linearGradient>
+    <radialGradient id="neonGlow1" cx="30%" cy="40%" r="45%">
+      <stop offset="0%" stop-color="#ff007f" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#ff007f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="neonGlow2" cx="75%" cy="60%" r="45%">
+      <stop offset="0%" stop-color="#00f0ff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#00f0ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bgNeon)"/>
+  <circle cx="550" cy="420" r="400" fill="url(#neonGlow1)"/>
+  <circle cx="1400" cy="650" r="450" fill="url(#neonGlow2)"/>
+  <polygon points="960,350 1150,700 770,700" stroke="#ff007f" stroke-width="4" fill="none" opacity="0.5"/>
+  <polygon points="960,320 1180,720 740,720" stroke="#00f0ff" stroke-width="2" fill="none" opacity="0.35"/>
+
+</svg>

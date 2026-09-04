@@ -1,0 +1,1 @@
+src/render-engine/draw-frame.ts(523,62): error TS2304: Cannot find name 'lineBlur'.
